@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that provides comprehensive knowledge abo
 
 ## Example Queries
 
-Once configured, you can ask any agentic agent:
+Once configured, you can ask any agentic agent that supports additional mcp servers:
 
 - Show me all networking modules
 - What are the required inputs for the VNet module
