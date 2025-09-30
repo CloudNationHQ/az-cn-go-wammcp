@@ -3,7 +3,6 @@ package terraform
 
 import "time"
 
-// Module represents a Terraform module with its metadata
 type Module struct {
 	Name        string         `json:"name"`
 	Path        string         `json:"path"`
@@ -19,7 +18,6 @@ type Module struct {
 	Repository  RepositoryInfo `json:"repository"`
 }
 
-// Variable represents a Terraform variable
 type Variable struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
@@ -29,21 +27,18 @@ type Variable struct {
 	Sensitive   bool   `json:"sensitive"`
 }
 
-// Output represents a Terraform output
 type Output struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Sensitive   bool   `json:"sensitive"`
 }
 
-// Resource represents a Terraform resource
 type Resource struct {
 	Type     string `json:"type"`
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
 }
 
-// Example represents a usage example
 type Example struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
@@ -51,7 +46,6 @@ type Example struct {
 	Content     string `json:"content"`
 }
 
-// RepositoryInfo contains repository metadata
 type RepositoryInfo struct {
 	URL       string    `json:"url"`
 	Branch    string    `json:"branch"`
@@ -59,14 +53,12 @@ type RepositoryInfo struct {
 	LastSync  time.Time `json:"last_sync"`
 }
 
-// ModuleIndex represents the searchable index of all modules
 type ModuleIndex struct {
 	Modules     []Module            `json:"modules"`
 	Categories  map[string][]string `json:"categories"`
 	LastUpdated time.Time           `json:"last_updated"`
 }
 
-// SearchQuery represents a search request
 type SearchQuery struct {
 	Query      string   `json:"query"`
 	Categories []string `json:"categories,omitempty"`
@@ -75,7 +67,6 @@ type SearchQuery struct {
 	Limit      int      `json:"limit,omitempty"`
 }
 
-// SearchResult represents search results
 type SearchResult struct {
 	Modules []Module `json:"modules"`
 	Total   int      `json:"total"`

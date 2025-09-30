@@ -121,7 +121,6 @@ func (s *Syncer) SyncAll() (*SyncProgress, error) {
 func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 	progress := &SyncProgress{}
 
-	// Clear cache to get fresh data from GitHub
 	s.githubClient.clearCache()
 	log.Println("Fetching repositories from GitHub (cache cleared)...")
 	repos, err := s.fetchRepositories()
@@ -135,7 +134,6 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 	for _, repo := range repos {
 		progress.CurrentRepo = repo.Name
 
-		// Check if module exists and is up-to-date
 		existingModule, err := s.db.GetModule(repo.Name)
 
 		if err != nil {
@@ -180,7 +178,6 @@ func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 		return nil, err
 	}
 
-	// Filter only terraform modules
 	var terraformRepos []GitHubRepo
 	for _, repo := range repos {
 		if strings.HasPrefix(repo.Name, "terraform-") {
@@ -192,7 +189,6 @@ func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 }
 
 func (s *Syncer) syncRepository(repo GitHubRepo) error {
-	// Insert/update module
 	module := &database.Module{
 		Name:        repo.Name,
 		FullName:    repo.FullName,
@@ -206,16 +202,13 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		return fmt.Errorf("failed to insert module: %w", err)
 	}
 
-	// Get existing module to check if it's an update
 	existingModule, _ := s.db.GetModuleByID(moduleID)
 	if existingModule != nil && existingModule.ID != 0 {
-		// Clear old data
 		if err := s.db.ClearModuleData(moduleID); err != nil {
 			log.Printf("Warning: failed to clear old data for %s: %v", repo.Name, err)
 		}
 	}
 
-	// Fetch README
 	readme, err := s.fetchReadme(repo.FullName)
 	if err != nil {
 		log.Printf("Warning: failed to fetch README for %s: %v", repo.Name, err)
@@ -225,24 +218,20 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		s.db.InsertModule(module) // Update with README
 	}
 
-	// Fetch all files recursively
 	if err := s.syncRepositoryFiles(moduleID, repo.FullName, ""); err != nil {
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	// Parse Terraform files and extract structured data
 	if err := s.parseAndIndexTerraformFiles(moduleID); err != nil {
 		log.Printf("Warning: failed to parse terraform files for %s: %v", repo.Name, err)
 	}
 
-	// Check for examples
 	hasExamples := s.hasExamplesDirectory(repo.FullName)
 	if hasExamples {
 		module.HasExamples = true
 		module.ID = moduleID
 		s.db.InsertModule(module)
 
-		// Sync examples
 		if err := s.syncExamples(moduleID, repo.FullName); err != nil {
 			log.Printf("Warning: failed to sync examples for %s: %v", repo.Name, err)
 		}
@@ -264,21 +253,18 @@ func (s *Syncer) syncRepositoryFiles(moduleID int64, repoFullName, path string) 
 	}
 
 	for _, content := range contents {
-		// Skip certain directories
 		if content.Type == "dir" {
 			skipDirs := []string{".github", ".git", "node_modules", ".terraform"}
 			if slices.Contains(skipDirs, content.Name) {
 				continue
 			}
 
-			// Recursively sync subdirectories
 			if err := s.syncRepositoryFiles(moduleID, repoFullName, content.Path); err != nil {
 				log.Printf("Warning: failed to sync directory %s: %v", content.Path, err)
 			}
 			continue
 		}
 
-		// Download and store file content
 		if content.Type == "file" {
 			fileContent, err := s.fetchFileContent(content)
 			if err != nil {
@@ -320,7 +306,6 @@ func (s *Syncer) fetchReadme(repoFullName string) (string, error) {
 }
 
 func (s *Syncer) fetchFileContent(content GitHubContent) (string, error) {
-	// If download URL is available, use it
 	if content.DownloadURL != "" {
 		data, err := s.githubClient.get(content.DownloadURL)
 		if err != nil {
@@ -329,7 +314,6 @@ func (s *Syncer) fetchFileContent(content GitHubContent) (string, error) {
 		return string(data), nil
 	}
 
-	// Otherwise decode base64 content
 	if content.Content != "" {
 		decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(content.Content, "\n", ""))
 		if err != nil {
@@ -361,7 +345,6 @@ func (s *Syncer) syncExamples(moduleID int64, repoFullName string) error {
 
 	for _, content := range contents {
 		if content.Type == "dir" {
-			// Fetch example files
 			exampleFiles, err := s.fetchExampleFiles(repoFullName, content.Path)
 			if err != nil {
 				log.Printf("Warning: failed to fetch example %s: %v", content.Name, err)
@@ -423,7 +406,6 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			continue
 		}
 
-		// Parse variables
 		variables := parseVariables(file.Content)
 		for _, v := range variables {
 			v.ModuleID = moduleID
@@ -432,7 +414,6 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		// Parse outputs
 		outputs := parseOutputs(file.Content)
 		for _, o := range outputs {
 			o.ModuleID = moduleID
@@ -441,7 +422,6 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		// Parse resources
 		resources := parseResources(file.Content, file.FileName)
 		for _, r := range resources {
 			r.ModuleID = moduleID
@@ -450,7 +430,6 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		// Parse data sources
 		dataSources := parseDataSources(file.Content, file.FileName)
 		for _, d := range dataSources {
 			d.ModuleID = moduleID
@@ -463,11 +442,9 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 	return nil
 }
 
-// Simple parsers for Terraform constructs
 func parseVariables(content string) []database.ModuleVariable {
 	var variables []database.ModuleVariable
 
-	// Regex to match variable blocks
 	varRegex := regexp.MustCompile(`(?s)variable\s+"([^"]+)"\s*\{([^}]*)\}`)
 	matches := varRegex.FindAllStringSubmatch(content, -1)
 
@@ -484,23 +461,19 @@ func parseVariables(content string) []database.ModuleVariable {
 			Required: true, // default
 		}
 
-		// Extract type
 		if typeMatch := regexp.MustCompile(`type\s*=\s*([^\n]+)`).FindStringSubmatch(block); len(typeMatch) > 1 {
 			variable.Type = strings.TrimSpace(typeMatch[1])
 		}
 
-		// Extract description
 		if descMatch := regexp.MustCompile(`description\s*=\s*"([^"]+)"`).FindStringSubmatch(block); len(descMatch) > 1 {
 			variable.Description = descMatch[1]
 		}
 
-		// Extract default value
 		if defaultMatch := regexp.MustCompile(`(?s)default\s*=\s*(.+?)(?:\n\s*\w+\s*=|\n\s*\}|$)`).FindStringSubmatch(block); len(defaultMatch) > 1 {
 			variable.Required = false
 			variable.DefaultValue = strings.TrimSpace(defaultMatch[1])
 		}
 
-		// Check for sensitive
 		if sensitiveMatch := regexp.MustCompile(`sensitive\s*=\s*true`).FindString(block); sensitiveMatch != "" {
 			variable.Sensitive = true
 		}
@@ -529,12 +502,10 @@ func parseOutputs(content string) []database.ModuleOutput {
 			Name: name,
 		}
 
-		// Extract description
 		if descMatch := regexp.MustCompile(`description\s*=\s*"([^"]+)"`).FindStringSubmatch(block); len(descMatch) > 1 {
 			output.Description = descMatch[1]
 		}
 
-		// Check for sensitive
 		if sensitiveMatch := regexp.MustCompile(`sensitive\s*=\s*true`).FindString(block); sensitiveMatch != "" {
 			output.Sensitive = true
 		}
@@ -562,7 +533,6 @@ func parseResources(content, fileName string) []database.ModuleResource {
 			SourceFile:   fileName,
 		}
 
-		// Extract provider from resource type (e.g., "azurerm_resource_group" -> "azurerm")
 		parts := strings.SplitN(match[1], "_", 2)
 		if len(parts) > 0 {
 			resource.Provider = parts[0]
@@ -591,7 +561,6 @@ func parseDataSources(content, fileName string) []database.ModuleDataSource {
 			SourceFile: fileName,
 		}
 
-		// Extract provider
 		parts := strings.SplitN(match[1], "_", 2)
 		if len(parts) > 0 {
 			dataSource.Provider = parts[0]
@@ -616,7 +585,6 @@ func getFileType(fileName string) string {
 	return "other"
 }
 
-// GitHub client methods
 func (rl *RateLimiter) acquire() bool {
 	rl.mutex.Lock()
 	defer rl.mutex.Unlock()
@@ -640,7 +608,6 @@ func (gc *GitHubClient) clearCache() {
 }
 
 func (gc *GitHubClient) get(url string) ([]byte, error) {
-	// Check cache first
 	gc.cacheMutex.RLock()
 	if entry, exists := gc.cache[url]; exists && time.Now().Before(entry.ExpiresAt) {
 		gc.cacheMutex.RUnlock()
@@ -650,7 +617,6 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 	}
 	gc.cacheMutex.RUnlock()
 
-	// Rate limiting
 	if !gc.rateLimit.acquire() {
 		return nil, fmt.Errorf("rate limit exceeded")
 	}
@@ -660,7 +626,6 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 		return nil, err
 	}
 
-	// Add authentication if token is available
 	if gc.token != "" {
 		req.Header.Set("Authorization", "token "+gc.token)
 	}
@@ -682,7 +647,6 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 		return nil, err
 	}
 
-	// Cache the result for 10 minutes
 	gc.cacheMutex.Lock()
 	gc.cache[url] = CacheEntry{
 		Data:      data,

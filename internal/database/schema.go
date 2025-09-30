@@ -88,7 +88,6 @@ CREATE INDEX IF NOT EXISTS idx_module_resources_type ON module_resources(resourc
 CREATE INDEX IF NOT EXISTS idx_module_data_sources_module_id ON module_data_sources(module_id);
 CREATE INDEX IF NOT EXISTS idx_module_examples_module_id ON module_examples(module_id);
 
--- Full-text search for modules (name, description, README)
 CREATE VIRTUAL TABLE IF NOT EXISTS modules_fts USING fts5(
     name,
     description,
@@ -97,7 +96,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS modules_fts USING fts5(
     content_rowid='id'
 );
 
--- Full-text search for all file content
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     file_name,
     file_path,
@@ -106,7 +104,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     content_rowid='id'
 );
 
--- Triggers to keep modules FTS in sync
 CREATE TRIGGER IF NOT EXISTS modules_fts_insert AFTER INSERT ON modules BEGIN
     INSERT INTO modules_fts(rowid, name, description, readme_content)
     VALUES (new.id, new.name, new.description, new.readme_content);
@@ -142,3 +139,4 @@ CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON module_files BEGIN
     DELETE FROM files_fts WHERE rowid = old.id;
 END;
 `
+

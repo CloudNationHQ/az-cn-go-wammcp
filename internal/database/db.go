@@ -106,7 +106,6 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
-// InsertModule stores a module record and returns its database ID.
 func (db *DB) InsertModule(m *Module) (int64, error) {
 	result, err := db.conn.Exec(`
 		INSERT INTO modules (name, full_name, description, repo_url, last_updated, readme_content, has_examples)
@@ -202,7 +201,6 @@ func (db *DB) SearchModules(query string, limit int) ([]Module, error) {
 	return modules, rows.Err()
 }
 
-// InsertFile stores or updates metadata for a module file.
 func (db *DB) InsertFile(f *ModuleFile) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_files (module_id, file_name, file_path, file_type, content, size_bytes)
@@ -280,7 +278,6 @@ func (db *DB) GetFile(moduleName string, filePath string) (*ModuleFile, error) {
 	return &f, nil
 }
 
-// InsertVariable stores metadata for a module variable.
 func (db *DB) InsertVariable(v *ModuleVariable) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_variables (module_id, name, type, description, default_value, required, sensitive)
@@ -311,7 +308,6 @@ func (db *DB) GetModuleVariables(moduleID int64) ([]ModuleVariable, error) {
 	return vars, rows.Err()
 }
 
-// InsertOutput stores metadata for a module output.
 func (db *DB) InsertOutput(o *ModuleOutput) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_outputs (module_id, name, description, value, sensitive)
@@ -342,7 +338,6 @@ func (db *DB) GetModuleOutputs(moduleID int64) ([]ModuleOutput, error) {
 	return outputs, rows.Err()
 }
 
-// InsertResource stores metadata for a module resource.
 func (db *DB) InsertResource(r *ModuleResource) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_resources (module_id, resource_type, resource_name, provider, source_file)
@@ -373,7 +368,6 @@ func (db *DB) GetModuleResources(moduleID int64) ([]ModuleResource, error) {
 	return resources, rows.Err()
 }
 
-// InsertDataSource stores metadata for a module data source.
 func (db *DB) InsertDataSource(d *ModuleDataSource) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_data_sources (module_id, data_type, data_name, provider, source_file)
@@ -404,7 +398,6 @@ func (db *DB) GetModuleDataSources(moduleID int64) ([]ModuleDataSource, error) {
 	return dataSources, rows.Err()
 }
 
-// InsertExample stores content for a module example.
 func (db *DB) InsertExample(e *ModuleExample) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO module_examples (module_id, name, path, content)
@@ -435,7 +428,6 @@ func (db *DB) GetModuleExamples(moduleID int64) ([]ModuleExample, error) {
 	return examples, rows.Err()
 }
 
-// ClearModuleData removes all related records for the given module ID.
 func (db *DB) ClearModuleData(moduleID int64) error {
 	tx, err := db.conn.Begin()
 	if err != nil {

@@ -14,7 +14,6 @@ import (
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
 )
 
-// Message represents a JSON-RPC 2.0 message.
 type Message struct {
 	JSONRPC string    `json:"jsonrpc"`
 	Method  string    `json:"method,omitempty"`
@@ -34,19 +33,16 @@ type ToolCallParams struct {
 	Arguments any    `json:"arguments"`
 }
 
-// Server wraps all dependencies required to serve MCP requests.
 type Server struct {
 	db     *database.DB
 	syncer *indexer.Syncer
 	writer io.Writer
 }
 
-// NewServer constructs a Server.
 func NewServer(db *database.DB, syncer *indexer.Syncer) *Server {
 	return &Server{db: db, syncer: syncer}
 }
 
-// Run processes messages from r and writes responses to w until the context is done.
 func (s *Server) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 	s.writer = w
 	scanner := bufio.NewScanner(r)
@@ -863,7 +859,6 @@ func (s *Server) handleExtractVariableDefinition(args any) map[string]any {
 		}
 	}
 
-	// Find the closing brace of the variable block
 	braceCount := 0
 	inBlock := false
 	endIdx := startIdx
@@ -918,7 +913,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		}
 	}
 
-	// Get all modules
 	modules, err := s.db.ListModules()
 	if err != nil {
 		return map[string]any{
@@ -937,7 +931,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		Match      string
 	}
 
-	// Search through all modules
 	for _, module := range modules {
 		files, err := s.db.GetModuleFiles(module.ID)
 		if err != nil {
@@ -945,17 +938,14 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		}
 
 		for _, file := range files {
-			// Filter by file type if specified
 			if patternArgs.FileType != "" && file.FileName != patternArgs.FileType {
 				continue
 			}
 
-			// Only search .tf files
 			if !strings.HasSuffix(file.FileName, ".tf") {
 				continue
 			}
 
-			// Find ALL matches of the pattern (not just the first one)
 			searchContent := file.Content
 			offset := 0
 			matchCount := 0
@@ -969,15 +959,12 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				actualIdx := offset + idx
 				matchCount++
 
-				// Extract the block containing the pattern
 				startIdx := actualIdx
 
-				// Find start of block (look backwards for opening brace or newline)
 				for startIdx > 0 && file.Content[startIdx] != '\n' {
 					startIdx--
 				}
 
-				// Find end of block (look for closing brace)
 				endIdx := actualIdx
 				braceCount := 0
 				inBlock := false
@@ -1003,7 +990,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				if endIdx > startIdx {
 					match := strings.TrimSpace(file.Content[startIdx:endIdx])
 
-					// Add match count to module name if multiple matches in same file
 					displayName := module.Name
 					if matchCount > 1 {
 						displayName = fmt.Sprintf("%s #%d", module.Name, matchCount)
@@ -1020,7 +1006,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 					})
 				}
 
-				// Move past this match to find next one
 				offset = actualIdx + len(patternArgs.Pattern)
 				if offset >= len(file.Content) {
 					break
@@ -1030,7 +1015,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		}
 	}
 
-	// Format output
 	var text strings.Builder
 	text.WriteString(fmt.Sprintf("# Pattern Comparison: '%s'\n\n", patternArgs.Pattern))
 	text.WriteString(fmt.Sprintf("Found %d matches across modules\n\n", len(results)))
@@ -1039,7 +1023,6 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		text.WriteString("No matches found.\n")
 	} else {
 		if patternArgs.ShowFullBlocks {
-			// Show full code blocks
 			for _, result := range results {
 				text.WriteString(fmt.Sprintf("## %s (%s)\n\n", result.ModuleName, result.FileName))
 				text.WriteString("```hcl\n")
@@ -1047,11 +1030,9 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				text.WriteString("\n```\n\n")
 			}
 		} else {
-			// Show compact summary table
 			text.WriteString("| Module | File | Preview |\n")
 			text.WriteString("|--------|------|---------|\n")
 			for _, result := range results {
-				// Get first line as preview
 				firstLine := strings.Split(result.Match, "\n")[0]
 				if len(firstLine) > 60 {
 					firstLine = firstLine[:60] + "..."
@@ -1101,7 +1082,6 @@ func (s *Server) handleListModuleExamples(args any) map[string]any {
 		}
 	}
 
-	// Get all files in examples/ directory
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
 		return map[string]any{
@@ -1114,7 +1094,6 @@ func (s *Server) handleListModuleExamples(args any) map[string]any {
 		}
 	}
 
-	// Extract unique example names from examples/ paths
 	exampleMap := make(map[string][]string)
 	for _, file := range files {
 		if strings.HasPrefix(file.FilePath, "examples/") {
@@ -1182,7 +1161,6 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 		}
 	}
 
-	// Get all files for this module
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
 		return map[string]any{
@@ -1195,7 +1173,6 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 		}
 	}
 
-	// Filter files that belong to this example
 	examplePrefix := fmt.Sprintf("examples/%s/", exampleArgs.ExampleName)
 	var exampleFiles []database.ModuleFile
 	for _, file := range files {
@@ -1219,7 +1196,6 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 	text.WriteString(fmt.Sprintf("# %s / examples/%s\n\n", exampleArgs.ModuleName, exampleArgs.ExampleName))
 	text.WriteString(fmt.Sprintf("Contains %d file(s)\n\n", len(exampleFiles)))
 
-	// Sort files: main.tf first, then others
 	sortedFiles := make([]database.ModuleFile, 0, len(exampleFiles))
 	var mainFile *database.ModuleFile
 	for i := range exampleFiles {
