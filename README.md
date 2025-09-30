@@ -1,4 +1,4 @@
-# WAM MCP Server
+# Wam Mcp Server
 
 An MCP (Model Context Protocol) server that provides comprehensive knowledge about CloudNation's Terraform modules for Azure infrastructure.
 
