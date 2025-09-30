@@ -6,8 +6,11 @@ An MCP (Model Context Protocol) server that provides comprehensive knowledge abo
 
 Once configured, you can ask Claude Code:
 
-- "Show me all networking modules"
-- "How do I configure an AKS cluster?"
-- "What are the required inputs for the VNet module?"
-- "Generate a configuration using VNet and AKS modules together"
-- "Show me the inconsistencies of the dynamic block identity in all modules"
+- Show me all networking modules
+- What are the required inputs for the VNet module
+- Generate example usage for storage and private link
+- Show me the inconsistencies of the dynamic block identity in all modules
+- show only the nat rules resource in the virtual wan module in main.tf
+- show me the delegation dynamic block in the virtual network module
+- what resources are in the keyvault module and how do they relate
+- show all available module usage in the automation account module
