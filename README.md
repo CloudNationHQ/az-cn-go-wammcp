@@ -34,7 +34,7 @@ Automatically syncs and indexes modules from GitHub repositories into a local SQ
 
 ## Example Queries
 
-***Once configured, you can ask any agentic agent that supports additional mcp servers:***
+Once configured, you can ask any agentic agent that supports additional mcp servers:
 
 Show me all networking modules
 
