@@ -32,6 +32,42 @@ Get complete variable definitions with types and defaults
 
 Automatically syncs and indexes modules from GitHub repositories into a local SQLite database for fast queries
 
+## Prerequisites
+
+Go 1.23.0 or later
+
+SQLite (with FTS5 support - included in most modern installations)
+
+GitHub Personal Access Token (optional, for higher rate limits)
+
+## Configuration
+
+**Server flags**
+
+The server accepts command-line flags for configuration:
+
+--org - GitHub organization name (default: "cloudnationhq")
+
+--token - GitHub personal access token (optional)
+
+--db - Path to SQLite database file (default: "index.db")
+
+**Adding to AI agents**
+
+To use this MCP server with AI agents like claude, opencode, codex or other MCP-compatible tools, add it to their MCP configuration file:
+
+  "mcpServers": {
+    "az-cn-wam": {
+      "command": "/path/to/az-cn-wam-mcp",
+      "args": ["--org", "cloudnationhq", "--token", "YOUR_TOKEN"]
+    }
+  }
+}
+
+## Build from source
+
+make build
+
 ## Example Queries
 
 Once configured, you can ask any agentic agent that supports additional mcp servers:
