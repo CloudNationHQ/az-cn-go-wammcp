@@ -65,6 +65,7 @@ type SyncProgress struct {
 	SkippedRepos   int
 	CurrentRepo    string
 	Errors         []string
+	UpdatedRepos   []string
 }
 
 func NewSyncer(db *database.DB, token string, org string) *Syncer {
@@ -151,17 +152,22 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 
 		log.Printf("Syncing repository: %s (%d/%d)", repo.Name, progress.ProcessedRepos+1, progress.TotalRepos)
 
-		if err := s.syncRepository(repo); err != nil {
-			errMsg := fmt.Sprintf("Failed to sync %s: %v", repo.Name, err)
+		syncErr := s.syncRepository(repo)
+		if syncErr != nil {
+			errMsg := fmt.Sprintf("Failed to sync %s: %v", repo.Name, syncErr)
 			log.Println(errMsg)
 			progress.Errors = append(progress.Errors, errMsg)
+		} else {
+			progress.UpdatedRepos = append(progress.UpdatedRepos, repo.Name)
 		}
 
 		progress.ProcessedRepos++
 	}
 
+	syncedCount := len(progress.UpdatedRepos)
+
 	log.Printf("Sync completed: %d/%d repositories synced, %d skipped (up-to-date), %d errors",
-		progress.ProcessedRepos-len(progress.Errors)-progress.SkippedRepos, progress.TotalRepos, progress.SkippedRepos, len(progress.Errors))
+		syncedCount, progress.TotalRepos, progress.SkippedRepos, len(progress.Errors))
 
 	return progress, nil
 }
