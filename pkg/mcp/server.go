@@ -404,11 +404,19 @@ func (s *Server) handleSyncUpdatesModules() map[string]any {
 	var text strings.Builder
 	text.WriteString("# Incremental Sync Completed\n\n")
 
-	synced := progress.ProcessedRepos - len(progress.Errors) - progress.SkippedRepos
+	synced := len(progress.UpdatedRepos)
 
 	text.WriteString(fmt.Sprintf("Checked %d repositories\n", progress.TotalRepos))
 	text.WriteString(fmt.Sprintf("Updated modules: %d\n", synced))
 	text.WriteString(fmt.Sprintf("Skipped (up-to-date): %d\n\n", progress.SkippedRepos))
+
+	if synced > 0 {
+		text.WriteString("Updated repositories:\n")
+		for _, repo := range progress.UpdatedRepos {
+			text.WriteString(fmt.Sprintf("- %s\n", repo))
+		}
+		text.WriteString("\n")
+	}
 
 	if len(progress.Errors) > 0 {
 		text.WriteString(fmt.Sprintf("%d errors occurred:\n", len(progress.Errors)))
