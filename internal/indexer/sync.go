@@ -50,6 +50,11 @@ type GitHubClient struct {
 	token      string
 }
 
+type paginatedResponse struct {
+	data    []byte
+	nextURL string
+}
+
 type CacheEntry struct {
 	Data      any
 	ExpiresAt time.Time
@@ -177,18 +182,25 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 
 func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 	url := fmt.Sprintf("https://api.github.com/orgs/%s/repos?per_page=100", s.org)
-	data, err := s.githubClient.get(url)
-	if err != nil {
-		return nil, err
-	}
 
-	var repos []GitHubRepo
-	if err := json.Unmarshal(data, &repos); err != nil {
-		return nil, err
+	var allRepos []GitHubRepo
+	for url != "" {
+		data, nextURL, err := s.githubClient.getWithPagination(url)
+		if err != nil {
+			return nil, err
+		}
+
+		var pageRepos []GitHubRepo
+		if err := json.Unmarshal(data, &pageRepos); err != nil {
+			return nil, err
+		}
+
+		allRepos = append(allRepos, pageRepos...)
+		url = nextURL
 	}
 
 	var terraformRepos []GitHubRepo
-	for _, repo := range repos {
+	for _, repo := range allRepos {
 		if strings.HasPrefix(repo.Name, "terraform-") {
 			terraformRepos = append(terraformRepos, repo)
 		}
@@ -700,4 +712,93 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 	gc.cacheMutex.Unlock()
 
 	return data, nil
+}
+
+func (gc *GitHubClient) getWithPagination(url string) ([]byte, string, error) {
+	gc.cacheMutex.RLock()
+	if entry, exists := gc.cache[url]; exists && time.Now().Before(entry.ExpiresAt) {
+		gc.cacheMutex.RUnlock()
+		if cached, ok := entry.Data.(paginatedResponse); ok {
+			return cached.data, cached.nextURL, nil
+		}
+	}
+	gc.cacheMutex.RUnlock()
+
+	data, headers, err := gc.doRequest(url)
+	if err != nil {
+		return nil, "", err
+	}
+
+	nextURL := parseNextLink(headers.Get("Link"))
+
+	gc.cacheMutex.Lock()
+	gc.cache[url] = CacheEntry{
+		Data:      paginatedResponse{data: data, nextURL: nextURL},
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+	}
+	gc.cacheMutex.Unlock()
+
+	return data, nextURL, nil
+}
+
+func (gc *GitHubClient) doRequest(url string) ([]byte, http.Header, error) {
+	if !gc.rateLimit.acquire() {
+		return nil, nil, fmt.Errorf("rate limit exceeded")
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if gc.token != "" {
+		req.Header.Set("Authorization", "token "+gc.token)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "az-cn-wam-mcp/1.0.0")
+
+	resp, err := gc.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("GitHub API error: %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return data, resp.Header.Clone(), nil
+}
+
+func parseNextLink(linkHeader string) string {
+	if linkHeader == "" {
+		return ""
+	}
+
+	for _, part := range strings.Split(linkHeader, ",") {
+		sections := strings.Split(strings.TrimSpace(part), ";")
+		if len(sections) < 2 {
+			continue
+		}
+
+		urlPart := strings.Trim(sections[0], " <>")
+		var rel string
+		for _, sec := range sections[1:] {
+			sec = strings.TrimSpace(sec)
+			if trimmed, ok := strings.CutPrefix(sec, "rel="); ok {
+				rel = strings.Trim(trimmed, "\"")
+			}
+		}
+
+		if rel == "next" {
+			return urlPart
+		}
+	}
+
+	return ""
 }
