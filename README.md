@@ -56,7 +56,7 @@ The server accepts command-line flags for configuration:
 
 To use this MCP server with AI agents like claude, opencode, codex or other compatible ones, add it to their configuration file:
 
-`
+```json
 {
   "mcpServers": {
     "az-cn-wam": {
@@ -65,7 +65,7 @@ To use this MCP server with AI agents like claude, opencode, codex or other comp
     }
   }
 }
-`
+```
 
 ## Build from source
 
