@@ -36,18 +36,18 @@ Automatically syncs and indexes modules from GitHub repositories into a local SQ
 
 Once configured, you can ask any agentic agent that supports additional mcp servers:
 
-Show me all networking modules
+List all network related modules
 
-What are the required inputs for the VNet module
+Get module info for vnet and show required variables
 
 Generate example usage for storage and private link
 
-Show me the inconsistencies of the dynamic block identity in all modules
+Compare the pattern dynamic block identity across all modules and show the inconsistencies and flavours
 
-Show only the nat rules resource in the virtual wan module in main.tf
+Search for the resource nat rules in the virtual wan module
 
-Show me the delegation dynamic block in the virtual network module
+Search for the dynamic block delegation in the vnet module
 
-What resources are in the keyvault module and how do they relate
+Get module info for keyvault and show all resources and how they relate
 
-Show all available module usage in the automation account module
+List all module examples for automation accounts
