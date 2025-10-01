@@ -70,7 +70,7 @@ func (p *TerraformParser) ParseModule(modulePath string) (*terraform.Module, err
 		module.Description = desc
 	}
 
-	module.Provider = p.detectProvider(modulePath)
+	module.Provider = p.detectProvider(modulePath, module.Resources)
 	module.Tags = p.categorizeModule(module)
 
 	return module, nil
@@ -537,7 +537,7 @@ func extractCategoryHint(moduleName string) string {
 	return ""
 }
 
-func (p *TerraformParser) detectProvider(modulePath string) string {
+func (p *TerraformParser) detectProvider(modulePath string, resources []terraform.Resource) string {
 	terraformFiles := []string{"terraform.tf", "versions.tf", "providers.tf", "main.tf"}
 
 	for _, filename := range terraformFiles {
@@ -550,7 +550,7 @@ func (p *TerraformParser) detectProvider(modulePath string) string {
 	}
 
 	providerMap := make(map[string]int)
-	for _, resource := range []terraform.Resource{} {
+	for _, resource := range resources {
 		provider := extractProvider(resource.Type)
 		providerMap[provider]++
 	}
