@@ -107,7 +107,7 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) InsertModule(m *Module) (int64, error) {
-	result, err := db.conn.Exec(`
+	_, err := db.conn.Exec(`
 		INSERT INTO modules (name, full_name, description, repo_url, last_updated, readme_content, has_examples)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
@@ -119,12 +119,16 @@ func (db *DB) InsertModule(m *Module) (int64, error) {
 			has_examples = excluded.has_examples,
 			synced_at = CURRENT_TIMESTAMP
 	`, m.Name, m.FullName, m.Description, m.RepoURL, m.LastUpdated, m.ReadmeContent, m.HasExamples)
-
 	if err != nil {
 		return 0, err
 	}
 
-	return result.LastInsertId()
+	var id int64
+	if err := db.conn.QueryRow(`SELECT id FROM modules WHERE name = ?`, m.Name).Scan(&id); err != nil {
+		return 0, err
+	}
+
+	return id, nil
 }
 
 func (db *DB) GetModule(name string) (*Module, error) {
