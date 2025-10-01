@@ -73,7 +73,7 @@ make build
 
 ## Example Queries
 
-Once configured, you can ask any agentic agent that supports additional mcp servers:
+**Once configured, you can ask any agentic agent that supports additional mcp servers:**
 
 List all network related modules
 
