@@ -42,7 +42,7 @@ GitHub Personal Access Token (optional, for higher rate limits)
 
 ## Configuration
 
-***Server flags***
+**Server flags**
 
 The server accepts command-line flags for configuration:
 
@@ -52,11 +52,11 @@ The server accepts command-line flags for configuration:
 
 --db - Path to SQLite database file (default: "index.db")
 
-***Adding to AI agents***
+**Adding to AI agents**
 
-To use this MCP server with AI agents like claude, opencode, codex or other MCP-compatible tools, add it to their MCP configuration file:
+To use this MCP server with AI agents like claude, opencode, codex or other compatible ones, add it to their configuration file:
 
-```json
+`
 {
   "mcpServers": {
     "az-cn-wam": {
@@ -65,7 +65,7 @@ To use this MCP server with AI agents like claude, opencode, codex or other MCP-
     }
   }
 }
-```
+`
 
 ## Build from source
 
@@ -73,7 +73,7 @@ make build
 
 ## Example Queries
 
-***Once configured, you can ask any agentic agent that supports additional mcp servers***
+Once configured, you can ask any agentic agent that supports additional mcp servers:
 
 List all network related modules
 
