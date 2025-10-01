@@ -7,13 +7,16 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 type Syncer struct {
@@ -412,7 +415,13 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			continue
 		}
 
-		variables := parseVariables(file.Content)
+		body, err := parseHCLBody(file.Content, file.FilePath)
+		if err != nil {
+			log.Printf("Warning: failed to parse %s: %v", file.FilePath, err)
+			continue
+		}
+
+		variables := extractVariables(body, file.Content)
 		for _, v := range variables {
 			v.ModuleID = moduleID
 			if err := s.db.InsertVariable(&v); err != nil {
@@ -420,7 +429,7 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		outputs := parseOutputs(file.Content)
+		outputs := extractOutputs(body, file.Content)
 		for _, o := range outputs {
 			o.ModuleID = moduleID
 			if err := s.db.InsertOutput(&o); err != nil {
@@ -428,7 +437,7 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		resources := parseResources(file.Content, file.FileName)
+		resources := extractResources(body, file.FileName)
 		for _, r := range resources {
 			r.ModuleID = moduleID
 			if err := s.db.InsertResource(&r); err != nil {
@@ -436,7 +445,7 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			}
 		}
 
-		dataSources := parseDataSources(file.Content, file.FileName)
+		dataSources := extractDataSources(body, file.FileName)
 		for _, d := range dataSources {
 			d.ModuleID = moduleID
 			if err := s.db.InsertDataSource(&d); err != nil {
@@ -448,40 +457,51 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 	return nil
 }
 
-func parseVariables(content string) []database.ModuleVariable {
+func parseHCLBody(content string, filename string) (*hclsyntax.Body, error) {
+	parser := hclparse.NewParser()
+	file, diags := parser.ParseHCL([]byte(content), filename)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf(diags.Error())
+	}
+
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("unexpected HCL body type for %s", filename)
+	}
+
+	return body, nil
+}
+
+func extractVariables(body *hclsyntax.Body, content string) []database.ModuleVariable {
 	var variables []database.ModuleVariable
 
-	varRegex := regexp.MustCompile(`(?s)variable\s+"([^"]+)"\s*\{([^}]*)\}`)
-	matches := varRegex.FindAllStringSubmatch(content, -1)
-
-	for _, match := range matches {
-		if len(match) < 3 {
+	for _, block := range body.Blocks {
+		if block.Type != "variable" || len(block.Labels) == 0 {
 			continue
 		}
 
-		name := match[1]
-		block := match[2]
-
 		variable := database.ModuleVariable{
-			Name:     name,
-			Required: true, // default
+			Name:     block.Labels[0],
+			Required: true,
 		}
 
-		if typeMatch := regexp.MustCompile(`type\s*=\s*([^\n]+)`).FindStringSubmatch(block); len(typeMatch) > 1 {
-			variable.Type = strings.TrimSpace(typeMatch[1])
+		if attr, ok := block.Body.Attributes["type"]; ok {
+			variable.Type = strings.TrimSpace(expressionText(content, attr.Expr.Range()))
 		}
 
-		if descMatch := regexp.MustCompile(`description\s*=\s*"([^"]+)"`).FindStringSubmatch(block); len(descMatch) > 1 {
-			variable.Description = descMatch[1]
+		if attr, ok := block.Body.Attributes["description"]; ok {
+			if literal, ok := attr.Expr.(*hclsyntax.LiteralValueExpr); ok && literal.Val.Type() == cty.String {
+				variable.Description = literal.Val.AsString()
+			}
 		}
 
-		if defaultMatch := regexp.MustCompile(`(?s)default\s*=\s*(.+?)(?:\n\s*\w+\s*=|\n\s*\}|$)`).FindStringSubmatch(block); len(defaultMatch) > 1 {
+		if attr, ok := block.Body.Attributes["default"]; ok {
 			variable.Required = false
-			variable.DefaultValue = strings.TrimSpace(defaultMatch[1])
+			variable.DefaultValue = strings.TrimSpace(expressionText(content, attr.Expr.Range()))
 		}
 
-		if sensitiveMatch := regexp.MustCompile(`sensitive\s*=\s*true`).FindString(block); sensitiveMatch != "" {
-			variable.Sensitive = true
+		if attr, ok := block.Body.Attributes["sensitive"]; ok {
+			variable.Sensitive = attributeIsTrue(attr, content)
 		}
 
 		variables = append(variables, variable)
@@ -490,30 +510,26 @@ func parseVariables(content string) []database.ModuleVariable {
 	return variables
 }
 
-func parseOutputs(content string) []database.ModuleOutput {
+func extractOutputs(body *hclsyntax.Body, content string) []database.ModuleOutput {
 	var outputs []database.ModuleOutput
 
-	outputRegex := regexp.MustCompile(`(?s)output\s+"([^"]+)"\s*\{([^}]*)\}`)
-	matches := outputRegex.FindAllStringSubmatch(content, -1)
-
-	for _, match := range matches {
-		if len(match) < 3 {
+	for _, block := range body.Blocks {
+		if block.Type != "output" || len(block.Labels) == 0 {
 			continue
 		}
 
-		name := match[1]
-		block := match[2]
-
 		output := database.ModuleOutput{
-			Name: name,
+			Name: block.Labels[0],
 		}
 
-		if descMatch := regexp.MustCompile(`description\s*=\s*"([^"]+)"`).FindStringSubmatch(block); len(descMatch) > 1 {
-			output.Description = descMatch[1]
+		if attr, ok := block.Body.Attributes["description"]; ok {
+			if literal, ok := attr.Expr.(*hclsyntax.LiteralValueExpr); ok && literal.Val.Type() == cty.String {
+				output.Description = literal.Val.AsString()
+			}
 		}
 
-		if sensitiveMatch := regexp.MustCompile(`sensitive\s*=\s*true`).FindString(block); sensitiveMatch != "" {
-			output.Sensitive = true
+		if attr, ok := block.Body.Attributes["sensitive"]; ok {
+			output.Sensitive = attributeIsTrue(attr, content)
 		}
 
 		outputs = append(outputs, output)
@@ -522,26 +538,20 @@ func parseOutputs(content string) []database.ModuleOutput {
 	return outputs
 }
 
-func parseResources(content, fileName string) []database.ModuleResource {
+func extractResources(body *hclsyntax.Body, fileName string) []database.ModuleResource {
 	var resources []database.ModuleResource
 
-	resourceRegex := regexp.MustCompile(`resource\s+"([^"]+)"\s+"([^"]+)"`)
-	matches := resourceRegex.FindAllStringSubmatch(content, -1)
-
-	for _, match := range matches {
-		if len(match) < 3 {
+	for _, block := range body.Blocks {
+		if block.Type != "resource" || len(block.Labels) < 2 {
 			continue
 		}
 
+		resourceType := block.Labels[0]
 		resource := database.ModuleResource{
-			ResourceType: match[1],
-			ResourceName: match[2],
+			ResourceType: resourceType,
+			ResourceName: block.Labels[1],
+			Provider:     providerFromType(resourceType),
 			SourceFile:   fileName,
-		}
-
-		parts := strings.SplitN(match[1], "_", 2)
-		if len(parts) > 0 {
-			resource.Provider = parts[0]
 		}
 
 		resources = append(resources, resource)
@@ -550,32 +560,61 @@ func parseResources(content, fileName string) []database.ModuleResource {
 	return resources
 }
 
-func parseDataSources(content, fileName string) []database.ModuleDataSource {
+func extractDataSources(body *hclsyntax.Body, fileName string) []database.ModuleDataSource {
 	var dataSources []database.ModuleDataSource
 
-	dataRegex := regexp.MustCompile(`data\s+"([^"]+)"\s+"([^"]+)"`)
-	matches := dataRegex.FindAllStringSubmatch(content, -1)
-
-	for _, match := range matches {
-		if len(match) < 3 {
+	for _, block := range body.Blocks {
+		if block.Type != "data" || len(block.Labels) < 2 {
 			continue
 		}
 
+		dataType := block.Labels[0]
 		dataSource := database.ModuleDataSource{
-			DataType:   match[1],
-			DataName:   match[2],
+			DataType:   dataType,
+			DataName:   block.Labels[1],
+			Provider:   providerFromType(dataType),
 			SourceFile: fileName,
-		}
-
-		parts := strings.SplitN(match[1], "_", 2)
-		if len(parts) > 0 {
-			dataSource.Provider = parts[0]
 		}
 
 		dataSources = append(dataSources, dataSource)
 	}
 
 	return dataSources
+}
+
+func attributeIsTrue(attr *hclsyntax.Attribute, content string) bool {
+	if literal, ok := attr.Expr.(*hclsyntax.LiteralValueExpr); ok && literal.Val.Type() == cty.Bool {
+		return literal.Val.True()
+	}
+
+	text := strings.TrimSpace(expressionText(content, attr.Expr.Range()))
+	return strings.EqualFold(text, "true")
+}
+
+func expressionText(content string, rng hcl.Range) string {
+	data := []byte(content)
+	start := rng.Start.Byte
+	end := rng.End.Byte
+
+	if start < 0 {
+		start = 0
+	}
+	if end > len(data) {
+		end = len(data)
+	}
+	if end < start {
+		end = start
+	}
+
+	return string(data[start:end])
+}
+
+func providerFromType(fullType string) string {
+	parts := strings.SplitN(fullType, "_", 2)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
 }
 
 func getFileType(fileName string) string {
