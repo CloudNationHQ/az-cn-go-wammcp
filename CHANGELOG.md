@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/CloudNationHQ/ac-cn-wam-mcp/compare/v1.1.0...v1.1.1) (2025-10-01)
+
+
+### Bug Fixes
+
+* fetch all pages of github repos ([#8](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/8)) ([6afa3be](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/6afa3be4687d3b8f0c049ec14f6fd50e6211eb9c))
+* parse terraform metadata via hcl ast ([#6](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/6)) ([e6a93e7](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/e6a93e72dbe22626cae51a19fba1d82db3736e9a))
+
 ## [1.1.0](https://github.com/CloudNationHQ/ac-cn-wam-mcp/compare/v1.0.0...v1.1.0) (2025-10-01)
 
 
