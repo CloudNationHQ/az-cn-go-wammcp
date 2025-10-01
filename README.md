@@ -67,6 +67,8 @@ To use this MCP server with AI agents like claude, opencode, codex or other comp
 }
 ```
 
+The token is optional and only requires `repo → public_repo` rights.
+
 ## Build from source
 
 make build
