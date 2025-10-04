@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
@@ -34,13 +37,25 @@ type ToolCallParams struct {
 }
 
 type Server struct {
-	db     *database.DB
-	syncer *indexer.Syncer
-	writer io.Writer
+	db        *database.DB
+	syncer    *indexer.Syncer
+	writer    io.Writer
+	jobs      map[string]*SyncJob
+	jobsMutex sync.RWMutex
 }
 
 func NewServer(db *database.DB, syncer *indexer.Syncer) *Server {
-	return &Server{db: db, syncer: syncer}
+	return &Server{db: db, syncer: syncer, jobs: make(map[string]*SyncJob)}
+}
+
+type SyncJob struct {
+	ID          string
+	Type        string
+	Status      string
+	StartedAt   time.Time
+	CompletedAt *time.Time
+	Progress    *indexer.SyncProgress
+	Error       string
 }
 
 func (s *Server) Run(ctx context.Context, r io.Reader, w io.Writer) error {
@@ -281,6 +296,19 @@ func (s *Server) handleToolsList(msg Message) {
 				"required": []string{"module_name", "example_name"},
 			},
 		},
+		{
+			"name":        "sync_status",
+			"description": "Get status of ongoing or previous sync jobs",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"job_id": map[string]any{
+						"type":        "string",
+						"description": "Optional job identifier returned by sync commands",
+					},
+				},
+			},
+		},
 	}
 
 	response := Message{
@@ -332,6 +360,8 @@ func (s *Server) handleToolsCall(msg Message) {
 		result = s.handleListModuleExamples(params.Arguments)
 	case "get_example_content":
 		result = s.handleGetExampleContent(params.Arguments)
+	case "sync_status":
+		result = s.handleSyncStatus(params.Arguments)
 	default:
 		s.sendError(-32601, "Tool not found", msg.ID)
 		return
@@ -346,41 +376,16 @@ func (s *Server) handleToolsCall(msg Message) {
 }
 
 func (s *Server) handleSyncModules() map[string]any {
-	log.Println("Starting full repository sync...")
-
-	progress, err := s.syncer.SyncAll()
-	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Sync failed: %v", err),
-				},
-			},
-		}
-	}
-
-	var text strings.Builder
-	text.WriteString("# Sync Completed\n\n")
-	text.WriteString(fmt.Sprintf("Successfully synced %d/%d repositories\n\n",
-		progress.ProcessedRepos-len(progress.Errors), progress.TotalRepos))
-
-	if len(progress.Errors) > 0 {
-		text.WriteString(fmt.Sprintf("%d errors occurred:\n", len(progress.Errors)))
-		for i, err := range progress.Errors {
-			if i >= 10 {
-				text.WriteString(fmt.Sprintf("... and %d more errors\n", len(progress.Errors)-10))
-				break
-			}
-			text.WriteString(fmt.Sprintf("- %s\n", err))
-		}
-	}
+	job := s.startSyncJob("full_sync", func() (*indexer.SyncProgress, error) {
+		log.Println("Starting full repository sync (async job)...")
+		return s.syncer.SyncAll()
+	})
 
 	return map[string]any{
 		"content": []map[string]any{
 			{
 				"type": "text",
-				"text": text.String(),
+				"text": fmt.Sprintf("Full sync started.\nJob ID: %s\nUse `sync_status` with this job ID to monitor progress.", job.ID),
 			},
 		},
 	}
@@ -434,6 +439,56 @@ func (s *Server) handleSyncUpdatesModules() map[string]any {
 			{
 				"type": "text",
 				"text": text.String(),
+			},
+		},
+	}
+}
+
+func (s *Server) handleSyncStatus(args any) map[string]any {
+	argsBytes, _ := json.Marshal(args)
+	var statusArgs struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.Unmarshal(argsBytes, &statusArgs); err != nil {
+		return map[string]any{
+			"content": []map[string]any{
+				{
+					"type": "text",
+					"text": "Error: Invalid parameters",
+				},
+			},
+		}
+	}
+
+	if statusArgs.JobID != "" {
+		job, ok := s.getJob(statusArgs.JobID)
+		if !ok {
+			return map[string]any{
+				"content": []map[string]any{
+					{
+						"type": "text",
+						"text": fmt.Sprintf("Job '%s' not found", statusArgs.JobID),
+					},
+				},
+			}
+		}
+
+		return map[string]any{
+			"content": []map[string]any{
+				{
+					"type": "text",
+					"text": formatJobDetails(job),
+				},
+			},
+		}
+	}
+
+	jobs := s.listJobs()
+	return map[string]any{
+		"content": []map[string]any{
+			{
+				"type": "text",
+				"text": formatJobList(jobs),
 			},
 		},
 	}
@@ -1219,9 +1274,31 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 
 	for _, file := range sortedFiles {
 		text.WriteString(fmt.Sprintf("## %s\n\n", file.FileName))
-		text.WriteString("```hcl\n")
-		text.WriteString(file.Content)
-		text.WriteString("\n```\n\n")
+
+		switch file.FileType {
+		case "terraform":
+			text.WriteString("```hcl\n")
+			text.WriteString(file.Content)
+			text.WriteString("\n```\n\n")
+		case "yaml":
+			text.WriteString("```yaml\n")
+			text.WriteString(file.Content)
+			text.WriteString("\n```\n\n")
+		case "json":
+			text.WriteString("```json\n")
+			text.WriteString(file.Content)
+			text.WriteString("\n```\n\n")
+		case "markdown":
+			text.WriteString(file.Content)
+			if !strings.HasSuffix(file.Content, "\n") {
+				text.WriteString("\n")
+			}
+			text.WriteString("\n")
+		default:
+			text.WriteString("```\n")
+			text.WriteString(file.Content)
+			text.WriteString("\n```\n\n")
+		}
 	}
 
 	return map[string]any{
@@ -1232,6 +1309,162 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 			},
 		},
 	}
+}
+
+func (s *Server) startSyncJob(jobType string, runner func() (*indexer.SyncProgress, error)) *SyncJob {
+	jobID := fmt.Sprintf("%s-%d", jobType, time.Now().UnixNano())
+	job := &SyncJob{
+		ID:        jobID,
+		Type:      jobType,
+		Status:    "running",
+		StartedAt: time.Now(),
+	}
+
+	s.jobsMutex.Lock()
+	s.jobs[jobID] = job
+	s.jobsMutex.Unlock()
+
+	go func() {
+		headline := fmt.Sprintf("Sync job %s (%s)", jobID, jobType)
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("panic: %v", r)
+				log.Printf("%s panicked: %v", headline, r)
+				s.completeJobWithError(jobID, errMsg)
+			}
+		}()
+
+		progress, err := runner()
+		if err != nil {
+			log.Printf("%s failed: %v", headline, err)
+			s.completeJobWithError(jobID, err.Error())
+			return
+		}
+
+		log.Printf("%s completed", headline)
+		s.completeJobWithSuccess(jobID, progress)
+	}()
+
+	return job
+}
+
+func (s *Server) completeJobWithError(jobID, errMsg string) {
+	now := time.Now()
+	s.jobsMutex.Lock()
+	if job, ok := s.jobs[jobID]; ok {
+		job.Status = "failed"
+		job.Error = errMsg
+		job.CompletedAt = &now
+	}
+	s.jobsMutex.Unlock()
+}
+
+func (s *Server) completeJobWithSuccess(jobID string, progress *indexer.SyncProgress) {
+	now := time.Now()
+	s.jobsMutex.Lock()
+	if job, ok := s.jobs[jobID]; ok {
+		job.Status = "completed"
+		job.Progress = progress
+		job.CompletedAt = &now
+	}
+	s.jobsMutex.Unlock()
+}
+
+func (s *Server) getJob(jobID string) (*SyncJob, bool) {
+	s.jobsMutex.RLock()
+	defer s.jobsMutex.RUnlock()
+	job, ok := s.jobs[jobID]
+	return job, ok
+}
+
+func (s *Server) listJobs() []*SyncJob {
+	s.jobsMutex.RLock()
+	defer s.jobsMutex.RUnlock()
+	jobs := make([]*SyncJob, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		jobs = append(jobs, job)
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].StartedAt.After(jobs[j].StartedAt)
+	})
+	return jobs
+}
+
+func formatJobDetails(job *SyncJob) string {
+	var text strings.Builder
+	text.WriteString(fmt.Sprintf("# Sync Job %s (%s)\n\n", job.ID, job.Type))
+	text.WriteString(fmt.Sprintf("Status: %s\n", strings.ToUpper(job.Status)))
+	text.WriteString(fmt.Sprintf("Started: %s\n", job.StartedAt.Format(time.RFC3339)))
+	if job.CompletedAt != nil {
+		duration := job.CompletedAt.Sub(job.StartedAt)
+		text.WriteString(fmt.Sprintf("Completed: %s (duration %s)\n", job.CompletedAt.Format(time.RFC3339), duration.Round(time.Second)))
+	} else {
+		text.WriteString(fmt.Sprintf("Elapsed: %s\n", time.Since(job.StartedAt).Round(time.Second)))
+	}
+
+	if job.Error != "" {
+		text.WriteString(fmt.Sprintf("\nError: %s\n", job.Error))
+	}
+
+	if job.Progress != nil {
+		text.WriteString("\n")
+		text.WriteString(formatSyncProgress(job.Progress))
+	}
+
+	return text.String()
+}
+
+func formatJobList(jobs []*SyncJob) string {
+	if len(jobs) == 0 {
+		return "No sync jobs have been scheduled yet."
+	}
+
+	var text strings.Builder
+	text.WriteString("# Sync Jobs\n\n")
+	for _, job := range jobs {
+		text.WriteString(fmt.Sprintf("- %s (%s) — %s", job.ID, job.Type, strings.ToUpper(job.Status)))
+		if job.CompletedAt != nil {
+			duration := job.CompletedAt.Sub(job.StartedAt)
+			text.WriteString(fmt.Sprintf(" in %s", duration.Round(time.Second)))
+		}
+		text.WriteString("\n")
+	}
+
+	text.WriteString("\nUse `sync_status` with a job_id for detailed information.\n")
+	return text.String()
+}
+
+func formatSyncProgress(progress *indexer.SyncProgress) string {
+	if progress == nil {
+		return ""
+	}
+
+	var text strings.Builder
+	text.WriteString("## Summary\n\n")
+	succeeded := progress.ProcessedRepos - len(progress.Errors)
+	text.WriteString(fmt.Sprintf("Successfully synced %d/%d repositories\n\n", succeeded, progress.TotalRepos))
+
+	if len(progress.UpdatedRepos) > 0 {
+		text.WriteString("Updated repositories:\n")
+		for _, repo := range progress.UpdatedRepos {
+			text.WriteString(fmt.Sprintf("- %s\n", repo))
+		}
+		text.WriteString("\n")
+	}
+
+	if len(progress.Errors) > 0 {
+		text.WriteString(fmt.Sprintf("%d errors occurred:\n", len(progress.Errors)))
+		for i, err := range progress.Errors {
+			if i >= 10 {
+				remaining := len(progress.Errors) - 10
+				text.WriteString(fmt.Sprintf("... and %d more errors\n", remaining))
+				break
+			}
+			text.WriteString(fmt.Sprintf("- %s\n", err))
+		}
+	}
+
+	return text.String()
 }
 
 func (s *Server) sendResponse(response Message) {

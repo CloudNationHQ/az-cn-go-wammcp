@@ -456,3 +456,14 @@ func (db *DB) ClearModuleData(moduleID int64) error {
 
 	return tx.Commit()
 }
+
+func (db *DB) DeleteModuleByID(moduleID int64) error {
+	_, err := db.conn.Exec(`DELETE FROM modules WHERE id = ?`, moduleID)
+	return err
+}
+
+func (db *DB) DeleteChildModules(parentName string) error {
+	pattern := parentName + "//%"
+	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\\'`, pattern)
+	return err
+}

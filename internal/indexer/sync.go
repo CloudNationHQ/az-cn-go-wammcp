@@ -1,13 +1,17 @@
 package indexer
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"slices"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +35,9 @@ type GitHubRepo struct {
 	Description string `json:"description"`
 	UpdatedAt   string `json:"updated_at"`
 	HTMLURL     string `json:"html_url"`
+	Private     bool   `json:"private"`
+	Archived    bool   `json:"archived"`
+	Size        int    `json:"size"`
 }
 
 type GitHubContent struct {
@@ -75,6 +82,8 @@ type SyncProgress struct {
 	Errors         []string
 	UpdatedRepos   []string
 }
+
+var ErrRepoContentUnavailable = errors.New("repository content unavailable")
 
 func NewSyncer(db *database.DB, token string, org string) *Syncer {
 	client := &GitHubClient{
@@ -201,9 +210,26 @@ func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 
 	var terraformRepos []GitHubRepo
 	for _, repo := range allRepos {
-		if strings.HasPrefix(repo.Name, "terraform-") {
-			terraformRepos = append(terraformRepos, repo)
+		if !strings.HasPrefix(repo.Name, "terraform-azure-") {
+			continue
 		}
+
+		if repo.Private {
+			log.Printf("Skipping %s (private repository)", repo.Name)
+			continue
+		}
+
+		if repo.Archived {
+			log.Printf("Skipping %s (archived repository)", repo.Name)
+			continue
+		}
+
+		if repo.Size <= 0 {
+			log.Printf("Skipping %s (empty repository)", repo.Name)
+			continue
+		}
+
+		terraformRepos = append(terraformRepos, repo)
 	}
 
 	return terraformRepos, nil
@@ -239,7 +265,19 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		s.db.InsertModule(module) // Update with README
 	}
 
-	if err := s.syncRepositoryFiles(moduleID, repo.FullName, ""); err != nil {
+	if err := s.db.DeleteChildModules(repo.Name); err != nil {
+		log.Printf("Warning: failed to delete child modules for %s: %v", repo.Name, err)
+	}
+
+	hasExamples, submoduleIDs, err := s.syncRepositoryFromArchive(moduleID, repo)
+	if err != nil {
+		if errors.Is(err, ErrRepoContentUnavailable) {
+			log.Printf("Skipping %s: repository content unavailable", repo.Name)
+			if delErr := s.db.DeleteModuleByID(moduleID); delErr != nil {
+				log.Printf("Warning: failed to delete module record for %s: %v", repo.Name, delErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
@@ -247,68 +285,161 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		log.Printf("Warning: failed to parse terraform files for %s: %v", repo.Name, err)
 	}
 
-	hasExamples := s.hasExamplesDirectory(repo.FullName)
+	for _, childID := range submoduleIDs {
+		if err := s.parseAndIndexTerraformFiles(childID); err != nil {
+			log.Printf("Warning: failed to parse terraform files for submodule %d of %s: %v", childID, repo.Name, err)
+		}
+	}
+
 	if hasExamples {
 		module.HasExamples = true
 		module.ID = moduleID
 		s.db.InsertModule(module)
-
-		if err := s.syncExamples(moduleID, repo.FullName); err != nil {
-			log.Printf("Warning: failed to sync examples for %s: %v", repo.Name, err)
-		}
 	}
 
 	return nil
 }
 
-func (s *Syncer) syncRepositoryFiles(moduleID int64, repoFullName, path string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s", repoFullName, path)
-	data, err := s.githubClient.get(url)
+func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (bool, []int64, error) {
+	archiveURL := fmt.Sprintf("https://api.github.com/repos/%s/tarball", repo.FullName)
+	data, err := s.githubClient.getArchive(archiveURL)
 	if err != nil {
-		return err
+		if errors.Is(err, ErrRepoContentUnavailable) {
+			return false, nil, ErrRepoContentUnavailable
+		}
+		return false, nil, err
 	}
 
-	var contents []GitHubContent
-	if err := json.Unmarshal(data, &contents); err != nil {
-		return err
+	gzipReader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to open archive: %w", err)
 	}
+	defer gzipReader.Close()
 
-	for _, content := range contents {
-		if content.Type == "dir" {
-			skipDirs := []string{".github", ".git", "node_modules", ".terraform"}
-			if slices.Contains(skipDirs, content.Name) {
-				continue
-			}
+	tarReader := tar.NewReader(gzipReader)
+	examplesFound := false
+	submoduleIDs := make(map[string]int64)
+	var submoduleOrder []int64
 
-			if err := s.syncRepositoryFiles(moduleID, repoFullName, content.Path); err != nil {
-				log.Printf("Warning: failed to sync directory %s: %v", content.Path, err)
-			}
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to read archive: %w", err)
+		}
+
+		if !isRegularFile(header.Typeflag) {
 			continue
 		}
 
-		if content.Type == "file" {
-			fileContent, err := s.fetchFileContent(content)
-			if err != nil {
-				log.Printf("Warning: failed to fetch file %s: %v", content.Path, err)
-				continue
-			}
+		relativePath := normalizeArchivePath(header.Name)
+		if relativePath == "" {
+			continue
+		}
 
-			file := &database.ModuleFile{
-				ModuleID:  moduleID,
-				FileName:  content.Name,
-				FilePath:  content.Path,
-				FileType:  getFileType(content.Name),
-				Content:   fileContent,
-				SizeBytes: content.Size,
-			}
+		if shouldSkipPath(relativePath) {
+			continue
+		}
 
-			if err := s.db.InsertFile(file); err != nil {
-				log.Printf("Warning: failed to insert file %s: %v", content.Path, err)
+		contentBytes, err := io.ReadAll(tarReader)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to read file %s: %w", relativePath, err)
+		}
+
+		fileName := path.Base(relativePath)
+
+		targetModuleID := moduleID
+		if strings.HasPrefix(relativePath, "modules/") {
+			parts := strings.Split(relativePath, "/")
+			if len(parts) >= 2 {
+				subKey := parts[1]
+				if subID, ok := submoduleIDs[subKey]; ok {
+					targetModuleID = subID
+				} else {
+					childID, childErr := s.ensureSubmoduleModule(repo, subKey)
+					if childErr != nil {
+						log.Printf("Warning: failed to ensure submodule %s for %s: %v", subKey, repo.Name, childErr)
+						continue
+					}
+					submoduleIDs[subKey] = childID
+					submoduleOrder = append(submoduleOrder, childID)
+					targetModuleID = childID
+				}
 			}
+		}
+		file := &database.ModuleFile{
+			ModuleID:  targetModuleID,
+			FileName:  fileName,
+			FilePath:  relativePath,
+			FileType:  getFileType(fileName),
+			Content:   string(contentBytes),
+			SizeBytes: header.Size,
+		}
+
+		if err := s.db.InsertFile(file); err != nil {
+			log.Printf("Warning: failed to insert file %s: %v", relativePath, err)
+		}
+
+		if strings.HasPrefix(relativePath, "examples/") {
+			examplesFound = true
 		}
 	}
 
-	return nil
+	return examplesFound, submoduleOrder, nil
+}
+
+func normalizeArchivePath(name string) string {
+	parts := strings.SplitN(name, "/", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+func shouldSkipPath(relativePath string) bool {
+	skipDirs := map[string]struct{}{
+		".git":         {},
+		".github":      {},
+		"node_modules": {},
+		".terraform":   {},
+	}
+
+	segments := strings.Split(relativePath, "/")
+	for _, segment := range segments {
+		if _, skip := skipDirs[segment]; skip {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Syncer) ensureSubmoduleModule(repo GitHubRepo, subKey string) (int64, error) {
+	submoduleName := fmt.Sprintf("%s//modules/%s", repo.Name, subKey)
+	module := &database.Module{
+		Name:        submoduleName,
+		FullName:    repo.FullName,
+		Description: fmt.Sprintf("Submodule %s of %s", subKey, repo.Name),
+		RepoURL:     repo.HTMLURL,
+		LastUpdated: repo.UpdatedAt,
+	}
+
+	moduleID, err := s.db.InsertModule(module)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert submodule %s: %w", submoduleName, err)
+	}
+
+	if err := s.db.ClearModuleData(moduleID); err != nil {
+		log.Printf("Warning: failed to clear old data for submodule %s: %v", submoduleName, err)
+	}
+
+	return moduleID, nil
+}
+
+func isRegularFile(typeFlag byte) bool {
+	return typeFlag == tar.TypeReg
 }
 
 func (s *Syncer) fetchReadme(repoFullName string) (string, error) {
@@ -344,76 +475,6 @@ func (s *Syncer) fetchFileContent(content GitHubContent) (string, error) {
 	}
 
 	return "", fmt.Errorf("no content available")
-}
-
-func (s *Syncer) hasExamplesDirectory(repoFullName string) bool {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/examples", repoFullName)
-	_, err := s.githubClient.get(url)
-	return err == nil
-}
-
-func (s *Syncer) syncExamples(moduleID int64, repoFullName string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/examples", repoFullName)
-	data, err := s.githubClient.get(url)
-	if err != nil {
-		return err
-	}
-
-	var contents []GitHubContent
-	if err := json.Unmarshal(data, &contents); err != nil {
-		return err
-	}
-
-	for _, content := range contents {
-		if content.Type == "dir" {
-			exampleFiles, err := s.fetchExampleFiles(repoFullName, content.Path)
-			if err != nil {
-				log.Printf("Warning: failed to fetch example %s: %v", content.Name, err)
-				continue
-			}
-
-			example := &database.ModuleExample{
-				ModuleID: moduleID,
-				Name:     content.Name,
-				Path:     content.Path,
-				Content:  exampleFiles,
-			}
-
-			if err := s.db.InsertExample(example); err != nil {
-				log.Printf("Warning: failed to insert example %s: %v", content.Name, err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (s *Syncer) fetchExampleFiles(repoFullName, path string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s", repoFullName, path)
-	data, err := s.githubClient.get(url)
-	if err != nil {
-		return "", err
-	}
-
-	var contents []GitHubContent
-	if err := json.Unmarshal(data, &contents); err != nil {
-		return "", err
-	}
-
-	var result strings.Builder
-	for _, content := range contents {
-		if content.Type == "file" && strings.HasSuffix(content.Name, ".tf") {
-			fileContent, err := s.fetchFileContent(content)
-			if err != nil {
-				continue
-			}
-			result.WriteString(fmt.Sprintf("# %s\n", content.Name))
-			result.WriteString(fileContent)
-			result.WriteString("\n\n")
-		}
-	}
-
-	return result.String(), nil
 }
 
 func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
@@ -712,6 +773,39 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 	gc.cacheMutex.Unlock()
 
 	return data, nil
+}
+
+func (gc *GitHubClient) getArchive(url string) ([]byte, error) {
+	if !gc.rateLimit.acquire() {
+		return nil, fmt.Errorf("rate limit exceeded")
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if gc.token != "" {
+		req.Header.Set("Authorization", "token "+gc.token)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "az-cn-wam-mcp/1.0.0")
+
+	resp, err := gc.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusConflict {
+		return nil, fmt.Errorf("%w: status %d", ErrRepoContentUnavailable, resp.StatusCode)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API error: %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 func (gc *GitHubClient) getWithPagination(url string) ([]byte, string, error) {
