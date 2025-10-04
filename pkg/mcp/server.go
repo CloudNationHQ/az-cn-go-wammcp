@@ -260,6 +260,14 @@ func (s *Server) handleToolsList(msg Message) {
 						"type":        "boolean",
 						"description": "Optional: show full code blocks instead of summary (default: false for compact table view)",
 					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Optional: maximum number of results to return (default: unlimited for table view, 20 for full blocks)",
+					},
+					"offset": map[string]any{
+						"type":        "number",
+						"description": "Optional: number of results to skip for pagination (default: 0)",
+					},
 				},
 				"required": []string{"pattern"},
 			},
@@ -522,7 +530,7 @@ func (s *Server) handleListModules() map[string]any {
 	text.WriteString(fmt.Sprintf("# Azure CloudNation Terraform Modules (%d modules)\n\n", len(modules)))
 
 	for i, module := range modules {
-		if i >= 50 { // Show more modules now that we're not hitting GitHub
+		if i >= 50 {
 			text.WriteString(fmt.Sprintf("... and %d more modules\n", len(modules)-50))
 			break
 		}
@@ -684,7 +692,6 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 		text.WriteString("\n")
 	}
 
-	// Get resources
 	resources, err := s.db.GetModuleResources(module.ID)
 	if err == nil && len(resources) > 0 {
 		text.WriteString(fmt.Sprintf("## Resources (%d)\n\n", len(resources)))
@@ -702,7 +709,6 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 		text.WriteString("\n")
 	}
 
-	// Get files
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err == nil && len(files) > 0 {
 		text.WriteString(fmt.Sprintf("## Files (%d)\n\n", len(files)))
@@ -720,7 +726,6 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 		text.WriteString("\n")
 	}
 
-	// Show README excerpt if available
 	if module.ReadmeContent != "" {
 		text.WriteString("## README (excerpt)\n\n")
 		lines := strings.Split(module.ReadmeContent, "\n")
@@ -786,7 +791,6 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 	}
 
 	for _, file := range files {
-		// Get module name
 		module, err := s.db.GetModuleByID(file.ModuleID)
 		moduleName := "unknown"
 		if err == nil {
@@ -796,13 +800,11 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 		text.WriteString(fmt.Sprintf("## %s / %s\n", moduleName, file.FilePath))
 		text.WriteString("```\n")
 
-		// Show relevant lines with context
 		lines := strings.Split(file.Content, "\n")
 		queryLower := strings.ToLower(searchArgs.Query)
 
 		for i, line := range lines {
 			if strings.Contains(strings.ToLower(line), queryLower) {
-				// Show 2 lines before and after for context
 				start := max(i-2, 0)
 				end := min(i+3, len(lines))
 
@@ -814,7 +816,7 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 					}
 				}
 				text.WriteString("...\n")
-				break // Only show first match in this file
+				break
 			}
 		}
 
@@ -964,6 +966,8 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		Pattern        string `json:"pattern"`
 		FileType       string `json:"file_type"`
 		ShowFullBlocks bool   `json:"show_full_blocks"`
+		Limit          int    `json:"limit"`
+		Offset         int    `json:"offset"`
 	}
 	if err := json.Unmarshal(argsBytes, &patternArgs); err != nil {
 		return map[string]any{
@@ -974,6 +978,14 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				},
 			},
 		}
+	}
+
+	// Set smart defaults for limit based on mode
+	if patternArgs.Limit == 0 {
+		if patternArgs.ShowFullBlocks {
+			patternArgs.Limit = 20 // Default limit for full blocks to avoid token overflow
+		}
+		// For table view, no limit by default (empty means unlimited)
 	}
 
 	modules, err := s.db.ListModules()
@@ -1078,15 +1090,35 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		}
 	}
 
+	totalResults := len(results)
+	startIdx := max(0, patternArgs.Offset)
+	startIdx = min(startIdx, totalResults)
+
+	endIdx := totalResults
+	if patternArgs.Limit > 0 {
+		endIdx = min(startIdx+patternArgs.Limit, totalResults)
+	}
+
+	paginatedResults := results[startIdx:endIdx]
+
 	var text strings.Builder
 	text.WriteString(fmt.Sprintf("# Pattern Comparison: '%s'\n\n", patternArgs.Pattern))
-	text.WriteString(fmt.Sprintf("Found %d matches across modules\n\n", len(results)))
+	text.WriteString(fmt.Sprintf("Found %d matches across modules", totalResults))
+	if patternArgs.Limit > 0 || patternArgs.Offset > 0 {
+		text.WriteString(fmt.Sprintf(" (showing %d-%d)\n\n", startIdx+1, endIdx))
+	} else {
+		text.WriteString("\n\n")
+	}
 
-	if len(results) == 0 {
-		text.WriteString("No matches found.\n")
+	if len(paginatedResults) == 0 {
+		if startIdx >= totalResults && totalResults > 0 {
+			text.WriteString(fmt.Sprintf("No results in this range. Total results: %d\n", totalResults))
+		} else {
+			text.WriteString("No matches found.\n")
+		}
 	} else {
 		if patternArgs.ShowFullBlocks {
-			for _, result := range results {
+			for _, result := range paginatedResults {
 				text.WriteString(fmt.Sprintf("## %s (%s)\n\n", result.ModuleName, result.FileName))
 				text.WriteString("```hcl\n")
 				text.WriteString(result.Match)
@@ -1095,7 +1127,7 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		} else {
 			text.WriteString("| Module | File | Preview |\n")
 			text.WriteString("|--------|------|---------|\n")
-			for _, result := range results {
+			for _, result := range paginatedResults {
 				firstLine := strings.Split(result.Match, "\n")[0]
 				if len(firstLine) > 60 {
 					firstLine = firstLine[:60] + "..."
@@ -1104,6 +1136,11 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				text.WriteString(fmt.Sprintf("| %s | %s | %s |\n", result.ModuleName, result.FileName, firstLine))
 			}
 			text.WriteString("\n**Tip:** Use `show_full_blocks: true` to see complete code blocks\n")
+		}
+
+		if patternArgs.Limit > 0 && endIdx < totalResults {
+			remaining := totalResults - endIdx
+			text.WriteString(fmt.Sprintf("\n**Pagination:** %d more results available. Use `offset: %d` to see next page.\n", remaining, endIdx))
 		}
 	}
 
