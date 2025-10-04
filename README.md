@@ -109,15 +109,3 @@ The indexed data is stored in a SQLite database file, which you can query also d
   JOIN module_resources r ON m.id = r.module_id
   WHERE r.resource_type = 'azurerm_storage_account'"
 `
-
-**Extract complete examples**
-
-`
-sqlite3 index.db "
-  SELECT '=== ' || file_name || ' ===' || char(10) || char(10) ||
-         content || char(10) || char(10)
-  FROM module_files
-  WHERE module_id = (SELECT id FROM modules WHERE name = 'terraform-azure-sa')
-    AND file_path LIKE 'examples/private-endpoint/%'
-  ORDER BY file_name"
-`
