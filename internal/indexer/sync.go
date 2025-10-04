@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
+	"github.com/cloudnationhq/az-cn-wam-mcp/internal/util"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -236,6 +237,39 @@ func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 }
 
 func (s *Syncer) syncRepository(repo GitHubRepo) error {
+	moduleID, err := s.insertModuleMetadata(repo)
+	if err != nil {
+		return err
+	}
+
+	if err := s.clearExistingModuleData(moduleID, repo.Name); err != nil {
+		log.Printf("Warning: failed to clear old data for %s: %v", repo.Name, err)
+	}
+
+	if err := s.syncReadme(moduleID, repo); err != nil {
+		log.Printf("Warning: failed to fetch README for %s: %v", repo.Name, err)
+	}
+
+	hasExamples, submoduleIDs, err := s.syncRepositoryContent(moduleID, repo)
+	if err != nil {
+		if errors.Is(err, ErrRepoContentUnavailable) {
+			return s.handleUnavailableRepo(moduleID, repo.Name)
+		}
+		return fmt.Errorf("failed to sync files: %w", err)
+	}
+
+	if err := s.parseModulesAndSubmodules(moduleID, submoduleIDs, repo.Name); err != nil {
+		log.Printf("Warning: failed to parse terraform files: %v", err)
+	}
+
+	if hasExamples {
+		s.markModuleHasExamples(moduleID)
+	}
+
+	return nil
+}
+
+func (s *Syncer) insertModuleMetadata(repo GitHubRepo) (int64, error) {
 	module := &database.Module{
 		Name:        repo.Name,
 		FullName:    repo.FullName,
@@ -246,58 +280,75 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 
 	moduleID, err := s.db.InsertModule(module)
 	if err != nil {
-		return fmt.Errorf("failed to insert module: %w", err)
+		return 0, fmt.Errorf("failed to insert module: %w", err)
 	}
 
+	return moduleID, nil
+}
+
+func (s *Syncer) clearExistingModuleData(moduleID int64, repoName string) error {
 	existingModule, _ := s.db.GetModuleByID(moduleID)
 	if existingModule != nil && existingModule.ID != 0 {
 		if err := s.db.ClearModuleData(moduleID); err != nil {
-			log.Printf("Warning: failed to clear old data for %s: %v", repo.Name, err)
+			return err
 		}
 	}
 
+	return s.db.DeleteChildModules(repoName)
+}
+
+func (s *Syncer) syncReadme(moduleID int64, repo GitHubRepo) error {
 	readme, err := s.fetchReadme(repo.FullName)
 	if err != nil {
-		log.Printf("Warning: failed to fetch README for %s: %v", repo.Name, err)
-	} else {
-		module.ReadmeContent = readme
-		module.ID = moduleID
-		s.db.InsertModule(module) // Update with README
+		return err
 	}
 
-	if err := s.db.DeleteChildModules(repo.Name); err != nil {
-		log.Printf("Warning: failed to delete child modules for %s: %v", repo.Name, err)
+	module := &database.Module{
+		ID:            moduleID,
+		Name:          repo.Name,
+		FullName:      repo.FullName,
+		Description:   repo.Description,
+		RepoURL:       repo.HTMLURL,
+		LastUpdated:   repo.UpdatedAt,
+		ReadmeContent: readme,
 	}
 
-	hasExamples, submoduleIDs, err := s.syncRepositoryFromArchive(moduleID, repo)
-	if err != nil {
-		if errors.Is(err, ErrRepoContentUnavailable) {
-			log.Printf("Skipping %s: repository content unavailable", repo.Name)
-			if delErr := s.db.DeleteModuleByID(moduleID); delErr != nil {
-				log.Printf("Warning: failed to delete module record for %s: %v", repo.Name, delErr)
-			}
-			return nil
-		}
-		return fmt.Errorf("failed to sync files: %w", err)
-	}
+	_, err = s.db.InsertModule(module)
+	return err
+}
 
+func (s *Syncer) syncRepositoryContent(moduleID int64, repo GitHubRepo) (bool, []int64, error) {
+	return s.syncRepositoryFromArchive(moduleID, repo)
+}
+
+func (s *Syncer) handleUnavailableRepo(moduleID int64, repoName string) error {
+	log.Printf("Skipping %s: repository content unavailable", repoName)
+	if delErr := s.db.DeleteModuleByID(moduleID); delErr != nil {
+		log.Printf("Warning: failed to delete module record for %s: %v", repoName, delErr)
+	}
+	return nil
+}
+
+func (s *Syncer) parseModulesAndSubmodules(moduleID int64, submoduleIDs []int64, repoName string) error {
 	if err := s.parseAndIndexTerraformFiles(moduleID); err != nil {
-		log.Printf("Warning: failed to parse terraform files for %s: %v", repo.Name, err)
+		log.Printf("Warning: failed to parse terraform files for %s: %v", repoName, err)
 	}
 
 	for _, childID := range submoduleIDs {
 		if err := s.parseAndIndexTerraformFiles(childID); err != nil {
-			log.Printf("Warning: failed to parse terraform files for submodule %d of %s: %v", childID, repo.Name, err)
+			log.Printf("Warning: failed to parse terraform files for submodule %d of %s: %v", childID, repoName, err)
 		}
 	}
 
-	if hasExamples {
-		module.HasExamples = true
-		module.ID = moduleID
-		s.db.InsertModule(module)
-	}
-
 	return nil
+}
+
+func (s *Syncer) markModuleHasExamples(moduleID int64) {
+	module := &database.Module{
+		ID:          moduleID,
+		HasExamples: true,
+	}
+	s.db.InsertModule(module)
 }
 
 func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (bool, []int64, error) {
@@ -310,13 +361,23 @@ func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (boo
 		return false, nil, err
 	}
 
+	tarReader, err := openTarArchive(data)
+	if err != nil {
+		return false, nil, err
+	}
+
+	return s.processArchiveEntries(tarReader, moduleID, repo)
+}
+
+func openTarArchive(data []byte) (*tar.Reader, error) {
 	gzipReader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return false, nil, fmt.Errorf("failed to open archive: %w", err)
+		return nil, fmt.Errorf("failed to open archive: %w", err)
 	}
-	defer gzipReader.Close()
+	return tar.NewReader(gzipReader), nil
+}
 
-	tarReader := tar.NewReader(gzipReader)
+func (s *Syncer) processArchiveEntries(tarReader *tar.Reader, moduleID int64, repo GitHubRepo) (bool, []int64, error) {
 	examplesFound := false
 	submoduleIDs := make(map[string]int64)
 	var submoduleOrder []int64
@@ -335,11 +396,7 @@ func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (boo
 		}
 
 		relativePath := normalizeArchivePath(header.Name)
-		if relativePath == "" {
-			continue
-		}
-
-		if shouldSkipPath(relativePath) {
+		if relativePath == "" || shouldSkipPath(relativePath) {
 			continue
 		}
 
@@ -348,37 +405,9 @@ func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (boo
 			return false, nil, fmt.Errorf("failed to read file %s: %w", relativePath, err)
 		}
 
-		fileName := path.Base(relativePath)
+		targetModuleID, _ := s.resolveTargetModule(moduleID, relativePath, repo, submoduleIDs, &submoduleOrder)
 
-		targetModuleID := moduleID
-		if strings.HasPrefix(relativePath, "modules/") {
-			parts := strings.Split(relativePath, "/")
-			if len(parts) >= 2 {
-				subKey := parts[1]
-				if subID, ok := submoduleIDs[subKey]; ok {
-					targetModuleID = subID
-				} else {
-					childID, childErr := s.ensureSubmoduleModule(repo, subKey)
-					if childErr != nil {
-						log.Printf("Warning: failed to ensure submodule %s for %s: %v", subKey, repo.Name, childErr)
-						continue
-					}
-					submoduleIDs[subKey] = childID
-					submoduleOrder = append(submoduleOrder, childID)
-					targetModuleID = childID
-				}
-			}
-		}
-		file := &database.ModuleFile{
-			ModuleID:  targetModuleID,
-			FileName:  fileName,
-			FilePath:  relativePath,
-			FileType:  getFileType(fileName),
-			Content:   string(contentBytes),
-			SizeBytes: header.Size,
-		}
-
-		if err := s.db.InsertFile(file); err != nil {
+		if err := s.insertModuleFile(targetModuleID, relativePath, header.Size, contentBytes); err != nil {
 			log.Printf("Warning: failed to insert file %s: %v", relativePath, err)
 		}
 
@@ -388,6 +417,46 @@ func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (boo
 	}
 
 	return examplesFound, submoduleOrder, nil
+}
+
+func (s *Syncer) resolveTargetModule(moduleID int64, relativePath string, repo GitHubRepo, submoduleIDs map[string]int64, submoduleOrder *[]int64) (int64, bool) {
+	if !strings.HasPrefix(relativePath, "modules/") {
+		return moduleID, false
+	}
+
+	parts := strings.Split(relativePath, "/")
+	if len(parts) < 2 {
+		return moduleID, false
+	}
+
+	subKey := parts[1]
+	if subID, ok := submoduleIDs[subKey]; ok {
+		return subID, false
+	}
+
+	childID, err := s.ensureSubmoduleModule(repo, subKey)
+	if err != nil {
+		log.Printf("Warning: failed to ensure submodule %s for %s: %v", subKey, repo.Name, err)
+		return moduleID, false
+	}
+
+	submoduleIDs[subKey] = childID
+	*submoduleOrder = append(*submoduleOrder, childID)
+	return childID, true
+}
+
+func (s *Syncer) insertModuleFile(moduleID int64, relativePath string, size int64, content []byte) error {
+	fileName := path.Base(relativePath)
+	file := &database.ModuleFile{
+		ModuleID:  moduleID,
+		FileName:  fileName,
+		FilePath:  relativePath,
+		FileType:  getFileType(fileName),
+		Content:   string(content),
+		SizeBytes: size,
+	}
+
+	return s.db.InsertFile(file)
 }
 
 func normalizeArchivePath(name string) string {
@@ -488,46 +557,66 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 			continue
 		}
 
-		body, err := parseHCLBody(file.Content, file.FilePath)
-		if err != nil {
+		if err := s.parseAndIndexTerraformFile(moduleID, file); err != nil {
 			log.Printf("Warning: failed to parse %s: %v", file.FilePath, err)
-			continue
-		}
-
-		variables := extractVariables(body, file.Content)
-		for _, v := range variables {
-			v.ModuleID = moduleID
-			if err := s.db.InsertVariable(&v); err != nil {
-				log.Printf("Warning: failed to insert variable: %v", err)
-			}
-		}
-
-		outputs := extractOutputs(body, file.Content)
-		for _, o := range outputs {
-			o.ModuleID = moduleID
-			if err := s.db.InsertOutput(&o); err != nil {
-				log.Printf("Warning: failed to insert output: %v", err)
-			}
-		}
-
-		resources := extractResources(body, file.FileName)
-		for _, r := range resources {
-			r.ModuleID = moduleID
-			if err := s.db.InsertResource(&r); err != nil {
-				log.Printf("Warning: failed to insert resource: %v", err)
-			}
-		}
-
-		dataSources := extractDataSources(body, file.FileName)
-		for _, d := range dataSources {
-			d.ModuleID = moduleID
-			if err := s.db.InsertDataSource(&d); err != nil {
-				log.Printf("Warning: failed to insert data source: %v", err)
-			}
 		}
 	}
 
 	return nil
+}
+
+func (s *Syncer) parseAndIndexTerraformFile(moduleID int64, file database.ModuleFile) error {
+	body, err := parseHCLBody(file.Content, file.FilePath)
+	if err != nil {
+		return err
+	}
+
+	s.indexVariables(moduleID, body, file.Content)
+	s.indexOutputs(moduleID, body, file.Content)
+	s.indexResources(moduleID, body, file.FileName)
+	s.indexDataSources(moduleID, body, file.FileName)
+
+	return nil
+}
+
+func (s *Syncer) indexVariables(moduleID int64, body *hclsyntax.Body, content string) {
+	variables := extractVariables(body, content)
+	for _, v := range variables {
+		v.ModuleID = moduleID
+		if err := s.db.InsertVariable(&v); err != nil {
+			log.Printf("Warning: failed to insert variable: %v", err)
+		}
+	}
+}
+
+func (s *Syncer) indexOutputs(moduleID int64, body *hclsyntax.Body, content string) {
+	outputs := extractOutputs(body, content)
+	for _, o := range outputs {
+		o.ModuleID = moduleID
+		if err := s.db.InsertOutput(&o); err != nil {
+			log.Printf("Warning: failed to insert output: %v", err)
+		}
+	}
+}
+
+func (s *Syncer) indexResources(moduleID int64, body *hclsyntax.Body, fileName string) {
+	resources := extractResources(body, fileName)
+	for _, r := range resources {
+		r.ModuleID = moduleID
+		if err := s.db.InsertResource(&r); err != nil {
+			log.Printf("Warning: failed to insert resource: %v", err)
+		}
+	}
+}
+
+func (s *Syncer) indexDataSources(moduleID int64, body *hclsyntax.Body, fileName string) {
+	dataSources := extractDataSources(body, fileName)
+	for _, d := range dataSources {
+		d.ModuleID = moduleID
+		if err := s.db.InsertDataSource(&d); err != nil {
+			log.Printf("Warning: failed to insert data source: %v", err)
+		}
+	}
 }
 
 func parseHCLBody(content string, filename string) (*hclsyntax.Body, error) {
@@ -683,11 +772,7 @@ func expressionText(content string, rng hcl.Range) string {
 }
 
 func providerFromType(fullType string) string {
-	parts := strings.SplitN(fullType, "_", 2)
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return ""
+	return util.ExtractProvider(fullType)
 }
 
 func getFileType(fileName string) string {

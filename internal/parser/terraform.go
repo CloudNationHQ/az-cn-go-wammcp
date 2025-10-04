@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cloudnationhq/az-cn-wam-mcp/internal/util"
 	"github.com/cloudnationhq/az-cn-wam-mcp/pkg/terraform"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -319,11 +320,7 @@ func extractModuleName(path string) string {
 }
 
 func extractProvider(resourceType string) string {
-	parts := strings.Split(resourceType, "_")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return "unknown"
+	return util.ExtractProvider(resourceType)
 }
 
 func (p *TerraformParser) extractDescription(modulePath string) string {

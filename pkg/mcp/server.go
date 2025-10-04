@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
+	"github.com/cloudnationhq/az-cn-wam-mcp/internal/formatter"
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
 )
 
@@ -404,169 +405,64 @@ func (s *Server) handleSyncUpdatesModules() map[string]any {
 
 	progress, err := s.syncer.SyncUpdates()
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Sync failed: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Sync failed: %v", err))
 	}
 
-	var text strings.Builder
-	text.WriteString("# Incremental Sync Completed\n\n")
+	text := formatter.IncrementalSyncProgress(
+		progress.TotalRepos,
+		len(progress.UpdatedRepos),
+		progress.SkippedRepos,
+		progress.UpdatedRepos,
+		progress.Errors,
+	)
 
-	synced := len(progress.UpdatedRepos)
-
-	text.WriteString(fmt.Sprintf("Checked %d repositories\n", progress.TotalRepos))
-	text.WriteString(fmt.Sprintf("Updated modules: %d\n", synced))
-	text.WriteString(fmt.Sprintf("Skipped (up-to-date): %d\n\n", progress.SkippedRepos))
-
-	if synced > 0 {
-		text.WriteString("Updated repositories:\n")
-		for _, repo := range progress.UpdatedRepos {
-			text.WriteString(fmt.Sprintf("- %s\n", repo))
-		}
-		text.WriteString("\n")
-	}
-
-	if len(progress.Errors) > 0 {
-		text.WriteString(fmt.Sprintf("%d errors occurred:\n", len(progress.Errors)))
-		for i, err := range progress.Errors {
-			if i >= 10 {
-				text.WriteString(fmt.Sprintf("... and %d more errors\n", len(progress.Errors)-10))
-				break
-			}
-			text.WriteString(fmt.Sprintf("- %s\n", err))
-		}
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleSyncStatus(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var statusArgs struct {
+	statusArgs, err := UnmarshalArgs[struct {
 		JobID string `json:"job_id"`
-	}
-	if err := json.Unmarshal(argsBytes, &statusArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
 	if statusArgs.JobID != "" {
 		job, ok := s.getJob(statusArgs.JobID)
 		if !ok {
-			return map[string]any{
-				"content": []map[string]any{
-					{
-						"type": "text",
-						"text": fmt.Sprintf("Job '%s' not found", statusArgs.JobID),
-					},
-				},
-			}
+			return ErrorResponse(fmt.Sprintf("Job '%s' not found", statusArgs.JobID))
 		}
 
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": formatJobDetails(job),
-				},
-			},
-		}
+		text := s.formatJobDetails(job)
+		return SuccessResponse(text)
 	}
 
 	jobs := s.listJobs()
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": formatJobList(jobs),
-			},
-		},
-	}
+	text := s.formatJobList(jobs)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleListModules() map[string]any {
 	modules, err := s.db.ListModules()
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error loading modules: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error loading modules: %v", err))
 	}
 
 	if len(modules) == 0 {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "No modules found. Run sync_modules tool to fetch modules from GitHub.",
-				},
-			},
-		}
+		return SuccessResponse("No modules found. Run sync_modules tool to fetch modules from GitHub.")
 	}
 
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Azure CloudNation Terraform Modules (%d modules)\n\n", len(modules)))
-
-	for i, module := range modules {
-		if i >= 50 {
-			text.WriteString(fmt.Sprintf("... and %d more modules\n", len(modules)-50))
-			break
-		}
-		text.WriteString(fmt.Sprintf("**%s**\n", module.Name))
-		if module.Description != "" {
-			text.WriteString(fmt.Sprintf("  %s\n", module.Description))
-		}
-		text.WriteString(fmt.Sprintf("  Repo: %s\n", module.RepoURL))
-		text.WriteString(fmt.Sprintf("  Last synced: %s\n\n", module.SyncedAt.Format("2006-01-02 15:04:05")))
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	text := formatter.ModuleList(modules)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleSearchModules(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var searchArgs struct {
+	searchArgs, err := UnmarshalArgs[struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
-	}
-	if err := json.Unmarshal(argsBytes, &searchArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid search query",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid search query")
 	}
 
 	if searchArgs.Limit == 0 {
@@ -575,196 +471,42 @@ func (s *Server) handleSearchModules(args any) map[string]any {
 
 	modules, err := s.db.SearchModules(searchArgs.Query, searchArgs.Limit)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error searching modules: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error searching modules: %v", err))
 	}
 
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Search Results for '%s' (%d matches)\n\n", searchArgs.Query, len(modules)))
-
-	for _, module := range modules {
-		text.WriteString(fmt.Sprintf("**%s**\n", module.Name))
-		if module.Description != "" {
-			text.WriteString(fmt.Sprintf("  %s\n", module.Description))
-		}
-		text.WriteString(fmt.Sprintf("  Repo: %s\n\n", module.RepoURL))
-	}
-
-	if len(modules) == 0 {
-		text.WriteString("No modules found matching your query.\n")
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	text := formatter.SearchResults(searchArgs.Query, modules)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleGetModuleInfo(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var moduleArgs struct {
+	moduleArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
-	}
-	if err := json.Unmarshal(argsBytes, &moduleArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid module name",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid module name")
 	}
 
 	module, err := s.db.GetModule(moduleArgs.ModuleName)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
 	}
 
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# %s\n\n", module.Name))
+	variables, _ := s.db.GetModuleVariables(module.ID)
+	outputs, _ := s.db.GetModuleOutputs(module.ID)
+	resources, _ := s.db.GetModuleResources(module.ID)
+	files, _ := s.db.GetModuleFiles(module.ID)
 
-	if module.Description != "" {
-		text.WriteString(fmt.Sprintf("**Description:** %s\n\n", module.Description))
-	}
-
-	text.WriteString(fmt.Sprintf("**Repository:** %s\n", module.RepoURL))
-	text.WriteString(fmt.Sprintf("**Last Updated:** %s\n", module.LastUpdated))
-	text.WriteString(fmt.Sprintf("**Last Synced:** %s\n\n", module.SyncedAt.Format("2006-01-02 15:04:05")))
-
-	// Get variables
-	variables, err := s.db.GetModuleVariables(module.ID)
-	if err == nil && len(variables) > 0 {
-		text.WriteString("## Variables\n\n")
-		for _, v := range variables {
-			text.WriteString(fmt.Sprintf("- **%s**", v.Name))
-			if v.Type != "" {
-				text.WriteString(fmt.Sprintf(" (`%s`)", v.Type))
-			}
-			if v.Required {
-				text.WriteString(" *[required]*")
-			}
-			if v.Sensitive {
-				text.WriteString(" *[sensitive]*")
-			}
-			if v.DefaultValue != "" {
-				text.WriteString(fmt.Sprintf(" - default: `%s`", v.DefaultValue))
-			}
-			if v.Description != "" {
-				text.WriteString(fmt.Sprintf("\n  %s", v.Description))
-			}
-			text.WriteString("\n")
-		}
-		text.WriteString("\n")
-	}
-
-	// Get outputs
-	outputs, err := s.db.GetModuleOutputs(module.ID)
-	if err == nil && len(outputs) > 0 {
-		text.WriteString("## Outputs\n\n")
-		for _, o := range outputs {
-			text.WriteString(fmt.Sprintf("- **%s**", o.Name))
-			if o.Sensitive {
-				text.WriteString(" *[sensitive]*")
-			}
-			if o.Description != "" {
-				text.WriteString(fmt.Sprintf("\n  %s", o.Description))
-			}
-			text.WriteString("\n")
-		}
-		text.WriteString("\n")
-	}
-
-	resources, err := s.db.GetModuleResources(module.ID)
-	if err == nil && len(resources) > 0 {
-		text.WriteString(fmt.Sprintf("## Resources (%d)\n\n", len(resources)))
-		for i, r := range resources {
-			if i >= 20 {
-				text.WriteString(fmt.Sprintf("... and %d more resources\n", len(resources)-20))
-				break
-			}
-			text.WriteString(fmt.Sprintf("- `%s.%s`", r.ResourceType, r.ResourceName))
-			if r.SourceFile != "" {
-				text.WriteString(fmt.Sprintf(" (in %s)", r.SourceFile))
-			}
-			text.WriteString("\n")
-		}
-		text.WriteString("\n")
-	}
-
-	files, err := s.db.GetModuleFiles(module.ID)
-	if err == nil && len(files) > 0 {
-		text.WriteString(fmt.Sprintf("## Files (%d)\n\n", len(files)))
-		for i, f := range files {
-			if i >= 30 {
-				text.WriteString(fmt.Sprintf("... and %d more files\n", len(files)-30))
-				break
-			}
-			text.WriteString(fmt.Sprintf("- %s", f.FilePath))
-			if f.SizeBytes > 0 {
-				text.WriteString(fmt.Sprintf(" (%d bytes)", f.SizeBytes))
-			}
-			text.WriteString("\n")
-		}
-		text.WriteString("\n")
-	}
-
-	if module.ReadmeContent != "" {
-		text.WriteString("## README (excerpt)\n\n")
-		lines := strings.Split(module.ReadmeContent, "\n")
-		lineCount := 0
-		for _, line := range lines {
-			if lineCount >= 30 {
-				text.WriteString("\n... (truncated, see full README at repository)\n")
-				break
-			}
-			text.WriteString(line + "\n")
-			lineCount++
-		}
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	text := formatter.ModuleInfo(module, variables, outputs, resources, files)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleSearchCode(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var searchArgs struct {
+	searchArgs, err := UnmarshalArgs[struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
-	}
-	if err := json.Unmarshal(argsBytes, &searchArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid search query",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid search query")
 	}
 
 	if searchArgs.Limit == 0 {
@@ -773,238 +515,130 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 
 	files, err := s.db.SearchFiles(searchArgs.Query, searchArgs.Limit)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error searching code: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error searching code: %v", err))
 	}
 
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Code Search Results for '%s' (%d matches)\n\n", searchArgs.Query, len(files)))
-
-	if len(files) == 0 {
-		text.WriteString("No code matches found.\n")
-	}
-
-	for _, file := range files {
-		module, err := s.db.GetModuleByID(file.ModuleID)
-		moduleName := "unknown"
+	getModuleName := func(moduleID int64) string {
+		module, err := s.db.GetModuleByID(moduleID)
 		if err == nil {
-			moduleName = module.Name
+			return module.Name
 		}
-
-		text.WriteString(fmt.Sprintf("## %s / %s\n", moduleName, file.FilePath))
-		text.WriteString("```\n")
-
-		lines := strings.Split(file.Content, "\n")
-		queryLower := strings.ToLower(searchArgs.Query)
-
-		for i, line := range lines {
-			if strings.Contains(strings.ToLower(line), queryLower) {
-				start := max(i-2, 0)
-				end := min(i+3, len(lines))
-
-				for j := start; j < end; j++ {
-					if j == i {
-						text.WriteString(fmt.Sprintf("→ %d: %s\n", j+1, lines[j]))
-					} else {
-						text.WriteString(fmt.Sprintf("  %d: %s\n", j+1, lines[j]))
-					}
-				}
-				text.WriteString("...\n")
-				break
-			}
-		}
-
-		text.WriteString("```\n\n")
+		return "unknown"
 	}
 
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	text := formatter.CodeSearchResults(searchArgs.Query, files, getModuleName)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleGetFileContent(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var fileArgs struct {
+	fileArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
 		FilePath   string `json:"file_path"`
-	}
-	if err := json.Unmarshal(argsBytes, &fileArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
 	file, err := s.db.GetFile(fileArgs.ModuleName, fileArgs.FilePath)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("File '%s' not found in module '%s'", fileArgs.FilePath, fileArgs.ModuleName),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("File '%s' not found in module '%s'", fileArgs.FilePath, fileArgs.ModuleName))
 	}
 
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# %s / %s\n\n", fileArgs.ModuleName, file.FilePath))
-	text.WriteString(fmt.Sprintf("**Size:** %d bytes\n", file.SizeBytes))
-	text.WriteString(fmt.Sprintf("**Type:** %s\n\n", file.FileType))
-	text.WriteString("```hcl\n")
-	text.WriteString(file.Content)
-	text.WriteString("\n```\n")
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	text := formatter.FileContent(fileArgs.ModuleName, file.FilePath, file.FileType, file.SizeBytes, file.Content)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleExtractVariableDefinition(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var varArgs struct {
+	varArgs, err := UnmarshalArgs[struct {
 		ModuleName   string `json:"module_name"`
 		VariableName string `json:"variable_name"`
-	}
-	if err := json.Unmarshal(argsBytes, &varArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
-	// Get the variables.tf file
 	file, err := s.db.GetFile(varArgs.ModuleName, "variables.tf")
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("variables.tf not found in module '%s'", varArgs.ModuleName),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("variables.tf not found in module '%s'", varArgs.ModuleName))
 	}
 
-	// Extract the specific variable block
-	variablePattern := fmt.Sprintf(`variable "%s"`, varArgs.VariableName)
-	startIdx := strings.Index(file.Content, variablePattern)
+	variableBlock := extractVariableBlock(file.Content, varArgs.VariableName)
+	if variableBlock == "" {
+		return ErrorResponse(fmt.Sprintf("Variable '%s' not found in %s", varArgs.VariableName, varArgs.ModuleName))
+	}
+
+	text := formatter.VariableDefinition(varArgs.ModuleName, varArgs.VariableName, variableBlock)
+	return SuccessResponse(text)
+}
+
+func extractVariableBlock(content, variableName string) string {
+	variablePattern := fmt.Sprintf(`variable "%s"`, variableName)
+	startIdx := strings.Index(content, variablePattern)
 	if startIdx == -1 {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Variable '%s' not found in %s", varArgs.VariableName, varArgs.ModuleName),
-				},
-			},
-		}
+		return ""
 	}
 
 	braceCount := 0
 	inBlock := false
 	endIdx := startIdx
 
-	for i := startIdx; i < len(file.Content); i++ {
-		char := file.Content[i]
-		if char == '{' {
+Loop:
+	for i := startIdx; i < len(content); i++ {
+		char := content[i]
+		switch char {
+		case '{':
 			braceCount++
 			inBlock = true
-		} else if char == '}' {
+		case '}':
 			braceCount--
 			if inBlock && braceCount == 0 {
 				endIdx = i + 1
-				break
+				break Loop
 			}
 		}
 	}
 
-	variableBlock := file.Content[startIdx:endIdx]
-
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# %s / variable \"%s\"\n\n", varArgs.ModuleName, varArgs.VariableName))
-	text.WriteString("```hcl\n")
-	text.WriteString(variableBlock)
-	text.WriteString("\n```\n")
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	return content[startIdx:endIdx]
 }
 
 func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var patternArgs struct {
+	patternArgs, err := UnmarshalArgs[struct {
 		Pattern        string `json:"pattern"`
 		FileType       string `json:"file_type"`
 		ShowFullBlocks bool   `json:"show_full_blocks"`
 		Limit          int    `json:"limit"`
 		Offset         int    `json:"offset"`
-	}
-	if err := json.Unmarshal(argsBytes, &patternArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
-	// Set smart defaults for limit based on mode
-	if patternArgs.Limit == 0 {
-		if patternArgs.ShowFullBlocks {
-			patternArgs.Limit = 20 // Default limit for full blocks to avoid token overflow
-		}
-		// For table view, no limit by default (empty means unlimited)
+	if patternArgs.Limit == 0 && patternArgs.ShowFullBlocks {
+		patternArgs.Limit = 20
 	}
 
 	modules, err := s.db.ListModules()
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error loading modules: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error loading modules: %v", err))
 	}
 
-	var results []struct {
-		ModuleName string
-		FileName   string
-		Match      string
-	}
+	results := s.findPatternMatches(modules, patternArgs.Pattern, patternArgs.FileType)
+	paginatedResults := paginateResults(results, patternArgs.Offset, patternArgs.Limit)
+
+	text := formatter.PatternComparison(
+		patternArgs.Pattern,
+		paginatedResults,
+		patternArgs.ShowFullBlocks,
+		patternArgs.Offset,
+		patternArgs.Limit,
+		len(results),
+	)
+
+	return SuccessResponse(text)
+}
+
+func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType string) []formatter.PatternMatch {
+	var results []formatter.PatternMatch
 
 	for _, module := range modules {
 		files, err := s.db.GetModuleFiles(module.ID)
@@ -1013,7 +647,7 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 		}
 
 		for _, file := range files {
-			if patternArgs.FileType != "" && file.FileName != patternArgs.FileType {
+			if fileType != "" && file.FileName != fileType {
 				continue
 			}
 
@@ -1021,179 +655,114 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 				continue
 			}
 
-			searchContent := file.Content
-			offset := 0
-			matchCount := 0
-
-			for {
-				idx := strings.Index(searchContent, patternArgs.Pattern)
-				if idx == -1 {
-					break
+			matches := extractPatternMatches(file.Content, pattern)
+			for i, match := range matches {
+				displayName := module.Name
+				if len(matches) > 1 {
+					displayName = fmt.Sprintf("%s #%d", module.Name, i+1)
 				}
-
-				actualIdx := offset + idx
-				matchCount++
-
-				startIdx := actualIdx
-
-				for startIdx > 0 && file.Content[startIdx] != '\n' {
-					startIdx--
-				}
-
-				endIdx := actualIdx
-				braceCount := 0
-				inBlock := false
-
-				for i := actualIdx; i < len(file.Content); i++ {
-					char := file.Content[i]
-					if char == '{' {
-						braceCount++
-						inBlock = true
-					} else if char == '}' {
-						braceCount--
-						if inBlock && braceCount == 0 {
-							endIdx = i + 1
-							// Find end of line
-							for endIdx < len(file.Content) && file.Content[endIdx] != '\n' {
-								endIdx++
-							}
-							break
-						}
-					}
-				}
-
-				if endIdx > startIdx {
-					match := strings.TrimSpace(file.Content[startIdx:endIdx])
-
-					displayName := module.Name
-					if matchCount > 1 {
-						displayName = fmt.Sprintf("%s #%d", module.Name, matchCount)
-					}
-
-					results = append(results, struct {
-						ModuleName string
-						FileName   string
-						Match      string
-					}{
-						ModuleName: displayName,
-						FileName:   file.FileName,
-						Match:      match,
-					})
-				}
-
-				offset = actualIdx + len(patternArgs.Pattern)
-				if offset >= len(file.Content) {
-					break
-				}
-				searchContent = file.Content[offset:]
+				results = append(results, formatter.PatternMatch{
+					ModuleName: displayName,
+					FileName:   file.FileName,
+					Match:      match,
+				})
 			}
 		}
 	}
 
-	totalResults := len(results)
-	startIdx := max(0, patternArgs.Offset)
-	startIdx = min(startIdx, totalResults)
+	return results
+}
 
-	endIdx := totalResults
-	if patternArgs.Limit > 0 {
-		endIdx = min(startIdx+patternArgs.Limit, totalResults)
-	}
+func extractPatternMatches(content, pattern string) []string {
+	var matches []string
+	searchContent := content
+	offset := 0
 
-	paginatedResults := results[startIdx:endIdx]
-
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Pattern Comparison: '%s'\n\n", patternArgs.Pattern))
-	text.WriteString(fmt.Sprintf("Found %d matches across modules", totalResults))
-	if patternArgs.Limit > 0 || patternArgs.Offset > 0 {
-		text.WriteString(fmt.Sprintf(" (showing %d-%d)\n\n", startIdx+1, endIdx))
-	} else {
-		text.WriteString("\n\n")
-	}
-
-	if len(paginatedResults) == 0 {
-		if startIdx >= totalResults && totalResults > 0 {
-			text.WriteString(fmt.Sprintf("No results in this range. Total results: %d\n", totalResults))
-		} else {
-			text.WriteString("No matches found.\n")
+	for {
+		idx := strings.Index(searchContent, pattern)
+		if idx == -1 {
+			break
 		}
-	} else {
-		if patternArgs.ShowFullBlocks {
-			for _, result := range paginatedResults {
-				text.WriteString(fmt.Sprintf("## %s (%s)\n\n", result.ModuleName, result.FileName))
-				text.WriteString("```hcl\n")
-				text.WriteString(result.Match)
-				text.WriteString("\n```\n\n")
-			}
-		} else {
-			text.WriteString("| Module | File | Preview |\n")
-			text.WriteString("|--------|------|---------|\n")
-			for _, result := range paginatedResults {
-				firstLine := strings.Split(result.Match, "\n")[0]
-				if len(firstLine) > 60 {
-					firstLine = firstLine[:60] + "..."
+
+		actualIdx := offset + idx
+		startIdx := actualIdx
+		for startIdx > 0 && content[startIdx] != '\n' {
+			startIdx--
+		}
+
+		endIdx := findBlockEnd(content, actualIdx)
+		if endIdx > startIdx {
+			matches = append(matches, strings.TrimSpace(content[startIdx:endIdx]))
+		}
+
+		offset = actualIdx + len(pattern)
+		if offset >= len(content) {
+			break
+		}
+		searchContent = content[offset:]
+	}
+
+	return matches
+}
+
+func findBlockEnd(content string, startPos int) int {
+	braceCount := 0
+	inBlock := false
+
+	for i := startPos; i < len(content); i++ {
+		char := content[i]
+		switch char {
+		case '{':
+			braceCount++
+			inBlock = true
+		case '}':
+			braceCount--
+			if inBlock && braceCount == 0 {
+				endIdx := i + 1
+				for endIdx < len(content) && content[endIdx] != '\n' {
+					endIdx++
 				}
-				firstLine = strings.ReplaceAll(firstLine, "|", "\\|")
-				text.WriteString(fmt.Sprintf("| %s | %s | %s |\n", result.ModuleName, result.FileName, firstLine))
+				return endIdx
 			}
-			text.WriteString("\n**Tip:** Use `show_full_blocks: true` to see complete code blocks\n")
-		}
-
-		if patternArgs.Limit > 0 && endIdx < totalResults {
-			remaining := totalResults - endIdx
-			text.WriteString(fmt.Sprintf("\n**Pagination:** %d more results available. Use `offset: %d` to see next page.\n", remaining, endIdx))
 		}
 	}
+	return startPos
+}
 
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
+func paginateResults(results []formatter.PatternMatch, offset, limit int) []formatter.PatternMatch {
+	total := len(results)
+	startIdx := min(max(0, offset), total)
+	endIdx := total
+	if limit > 0 {
+		endIdx = min(startIdx+limit, total)
 	}
+	return results[startIdx:endIdx]
 }
 
 func (s *Server) handleListModuleExamples(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var moduleArgs struct {
+	moduleArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
-	}
-	if err := json.Unmarshal(argsBytes, &moduleArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
 	module, err := s.db.GetModule(moduleArgs.ModuleName)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
 	}
 
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error getting files: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error getting files: %v", err))
 	}
 
+	exampleMap := buildExampleMap(files)
+	text := formatter.ExampleList(moduleArgs.ModuleName, exampleMap)
+	return SuccessResponse(text)
+}
+
+func buildExampleMap(files []database.ModuleFile) map[string][]string {
 	exampleMap := make(map[string][]string)
 	for _, file := range files {
 		if strings.HasPrefix(file.FilePath, "examples/") {
@@ -1204,148 +773,63 @@ func (s *Server) handleListModuleExamples(args any) map[string]any {
 			}
 		}
 	}
-
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Examples for %s\n\n", moduleArgs.ModuleName))
-
-	if len(exampleMap) == 0 {
-		text.WriteString("No examples found for this module.\n")
-	} else {
-		text.WriteString(fmt.Sprintf("Found %d example(s):\n\n", len(exampleMap)))
-		for exampleName, fileList := range exampleMap {
-			text.WriteString(fmt.Sprintf("## %s\n", exampleName))
-			text.WriteString("Files:\n")
-			for _, fileName := range fileList {
-				text.WriteString(fmt.Sprintf("- %s\n", fileName))
-			}
-			text.WriteString("\n")
-		}
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	return exampleMap
 }
 
 func (s *Server) handleGetExampleContent(args any) map[string]any {
-	argsBytes, _ := json.Marshal(args)
-	var exampleArgs struct {
+	exampleArgs, err := UnmarshalArgs[struct {
 		ModuleName  string `json:"module_name"`
 		ExampleName string `json:"example_name"`
-	}
-	if err := json.Unmarshal(argsBytes, &exampleArgs); err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": "Error: Invalid parameters",
-				},
-			},
-		}
+	}](args)
+	if err != nil {
+		return ErrorResponse("Error: Invalid parameters")
 	}
 
 	module, err := s.db.GetModule(exampleArgs.ModuleName)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Module '%s' not found", exampleArgs.ModuleName),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", exampleArgs.ModuleName))
 	}
 
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Error getting files: %v", err),
-				},
-			},
-		}
+		return ErrorResponse(fmt.Sprintf("Error getting files: %v", err))
 	}
 
-	examplePrefix := fmt.Sprintf("examples/%s/", exampleArgs.ExampleName)
+	exampleFiles := filterExampleFiles(files, exampleArgs.ExampleName)
+	if len(exampleFiles) == 0 {
+		return ErrorResponse(fmt.Sprintf("Example '%s' not found in module '%s'", exampleArgs.ExampleName, exampleArgs.ModuleName))
+	}
+
+	sortedFiles := sortExampleFiles(exampleFiles)
+	text := formatter.ExampleContent(exampleArgs.ModuleName, exampleArgs.ExampleName, sortedFiles)
+	return SuccessResponse(text)
+}
+
+func filterExampleFiles(files []database.ModuleFile, exampleName string) []database.ModuleFile {
+	examplePrefix := fmt.Sprintf("examples/%s/", exampleName)
 	var exampleFiles []database.ModuleFile
 	for _, file := range files {
 		if strings.HasPrefix(file.FilePath, examplePrefix) {
 			exampleFiles = append(exampleFiles, file)
 		}
 	}
+	return exampleFiles
+}
 
-	if len(exampleFiles) == 0 {
-		return map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Example '%s' not found in module '%s'", exampleArgs.ExampleName, exampleArgs.ModuleName),
-				},
-			},
-		}
-	}
-
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# %s / examples/%s\n\n", exampleArgs.ModuleName, exampleArgs.ExampleName))
-	text.WriteString(fmt.Sprintf("Contains %d file(s)\n\n", len(exampleFiles)))
-
-	sortedFiles := make([]database.ModuleFile, 0, len(exampleFiles))
+func sortExampleFiles(files []database.ModuleFile) []database.ModuleFile {
+	sortedFiles := make([]database.ModuleFile, 0, len(files))
 	var mainFile *database.ModuleFile
-	for i := range exampleFiles {
-		if exampleFiles[i].FileName == "main.tf" {
-			mainFile = &exampleFiles[i]
+	for i := range files {
+		if files[i].FileName == "main.tf" {
+			mainFile = &files[i]
 		} else {
-			sortedFiles = append(sortedFiles, exampleFiles[i])
+			sortedFiles = append(sortedFiles, files[i])
 		}
 	}
 	if mainFile != nil {
 		sortedFiles = append([]database.ModuleFile{*mainFile}, sortedFiles...)
 	}
-
-	for _, file := range sortedFiles {
-		text.WriteString(fmt.Sprintf("## %s\n\n", file.FileName))
-
-		switch file.FileType {
-		case "terraform":
-			text.WriteString("```hcl\n")
-			text.WriteString(file.Content)
-			text.WriteString("\n```\n\n")
-		case "yaml":
-			text.WriteString("```yaml\n")
-			text.WriteString(file.Content)
-			text.WriteString("\n```\n\n")
-		case "json":
-			text.WriteString("```json\n")
-			text.WriteString(file.Content)
-			text.WriteString("\n```\n\n")
-		case "markdown":
-			text.WriteString(file.Content)
-			if !strings.HasSuffix(file.Content, "\n") {
-				text.WriteString("\n")
-			}
-			text.WriteString("\n")
-		default:
-			text.WriteString("```\n")
-			text.WriteString(file.Content)
-			text.WriteString("\n```\n\n")
-		}
-	}
-
-	return map[string]any{
-		"content": []map[string]any{
-			{
-				"type": "text",
-				"text": text.String(),
-			},
-		},
-	}
+	return sortedFiles
 }
 
 func (s *Server) startSyncJob(jobType string, runner func() (*indexer.SyncProgress, error)) *SyncJob {
@@ -1427,81 +911,35 @@ func (s *Server) listJobs() []*SyncJob {
 	return jobs
 }
 
-func formatJobDetails(job *SyncJob) string {
-	var text strings.Builder
-	text.WriteString(fmt.Sprintf("# Sync Job %s (%s)\n\n", job.ID, job.Type))
-	text.WriteString(fmt.Sprintf("Status: %s\n", strings.ToUpper(job.Status)))
-	text.WriteString(fmt.Sprintf("Started: %s\n", job.StartedAt.Format(time.RFC3339)))
-	if job.CompletedAt != nil {
-		duration := job.CompletedAt.Sub(job.StartedAt)
-		text.WriteString(fmt.Sprintf("Completed: %s (duration %s)\n", job.CompletedAt.Format(time.RFC3339), duration.Round(time.Second)))
-	} else {
-		text.WriteString(fmt.Sprintf("Elapsed: %s\n", time.Since(job.StartedAt).Round(time.Second)))
-	}
-
-	if job.Error != "" {
-		text.WriteString(fmt.Sprintf("\nError: %s\n", job.Error))
-	}
-
+func (s *Server) formatJobDetails(job *SyncJob) string {
+	progressText := ""
 	if job.Progress != nil {
-		text.WriteString("\n")
-		text.WriteString(formatSyncProgress(job.Progress))
+		progressText = formatter.SyncProgress(job.Progress)
 	}
 
-	return text.String()
+	return formatter.JobDetails(
+		job.ID,
+		job.Type,
+		job.Status,
+		job.StartedAt,
+		job.CompletedAt,
+		job.Error,
+		progressText,
+	)
 }
 
-func formatJobList(jobs []*SyncJob) string {
-	if len(jobs) == 0 {
-		return "No sync jobs have been scheduled yet."
-	}
-
-	var text strings.Builder
-	text.WriteString("# Sync Jobs\n\n")
-	for _, job := range jobs {
-		text.WriteString(fmt.Sprintf("- %s (%s) — %s", job.ID, job.Type, strings.ToUpper(job.Status)))
-		if job.CompletedAt != nil {
-			duration := job.CompletedAt.Sub(job.StartedAt)
-			text.WriteString(fmt.Sprintf(" in %s", duration.Round(time.Second)))
-		}
-		text.WriteString("\n")
-	}
-
-	text.WriteString("\nUse `sync_status` with a job_id for detailed information.\n")
-	return text.String()
-}
-
-func formatSyncProgress(progress *indexer.SyncProgress) string {
-	if progress == nil {
-		return ""
-	}
-
-	var text strings.Builder
-	text.WriteString("## Summary\n\n")
-	succeeded := progress.ProcessedRepos - len(progress.Errors)
-	text.WriteString(fmt.Sprintf("Successfully synced %d/%d repositories\n\n", succeeded, progress.TotalRepos))
-
-	if len(progress.UpdatedRepos) > 0 {
-		text.WriteString("Updated repositories:\n")
-		for _, repo := range progress.UpdatedRepos {
-			text.WriteString(fmt.Sprintf("- %s\n", repo))
-		}
-		text.WriteString("\n")
-	}
-
-	if len(progress.Errors) > 0 {
-		text.WriteString(fmt.Sprintf("%d errors occurred:\n", len(progress.Errors)))
-		for i, err := range progress.Errors {
-			if i >= 10 {
-				remaining := len(progress.Errors) - 10
-				text.WriteString(fmt.Sprintf("... and %d more errors\n", remaining))
-				break
-			}
-			text.WriteString(fmt.Sprintf("- %s\n", err))
+func (s *Server) formatJobList(jobs []*SyncJob) string {
+	jobInfos := make([]formatter.JobInfo, len(jobs))
+	for i, job := range jobs {
+		jobInfos[i] = formatter.JobInfo{
+			ID:          job.ID,
+			Type:        job.Type,
+			Status:      job.Status,
+			StartedAt:   job.StartedAt,
+			CompletedAt: job.CompletedAt,
 		}
 	}
-
-	return text.String()
+	return formatter.JobList(jobInfos)
 }
 
 func (s *Server) sendResponse(response Message) {
