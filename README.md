@@ -92,3 +92,32 @@ Search for the dynamic block delegation in the vnet module
 Get module info for keyvault and show all resources and how they relate
 
 List all module examples for automation accounts
+
+## Direct Database Access
+
+The indexed data is stored in a SQLite database file, which you can query also directly:
+
+**Basic queries**
+
+`sqlite3 index.db "SELECT name, description FROM modules LIMIT 10"`
+
+`sqlite3 index.db "SELECT name FROM modules WHERE name LIKE '%storage%'"`
+
+`sqlite3 index.db "
+  SELECT m.name, r.resource_name
+  FROM modules m
+  JOIN module_resources r ON m.id = r.module_id
+  WHERE r.resource_type = 'azurerm_storage_account'"
+`
+
+**Extract complete examples**
+
+`
+sqlite3 index.db "
+  SELECT '=== ' || file_name || ' ===' || char(10) || char(10) ||
+         content || char(10) || char(10)
+  FROM module_files
+  WHERE module_id = (SELECT id FROM modules WHERE name = 'terraform-azure-sa')
+    AND file_path LIKE 'examples/private-endpoint/%'
+  ORDER BY file_name"
+`
