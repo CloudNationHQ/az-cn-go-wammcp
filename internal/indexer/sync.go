@@ -405,10 +405,7 @@ func (s *Syncer) processArchiveEntries(tarReader *tar.Reader, moduleID int64, re
 			return false, nil, fmt.Errorf("failed to read file %s: %w", relativePath, err)
 		}
 
-		targetModuleID, updated := s.resolveTargetModule(moduleID, relativePath, repo, submoduleIDs, &submoduleOrder)
-		if updated {
-			// Module ID was updated
-		}
+		targetModuleID, _ := s.resolveTargetModule(moduleID, relativePath, repo, submoduleIDs, &submoduleOrder)
 
 		if err := s.insertModuleFile(targetModuleID, relativePath, header.Size, contentBytes); err != nil {
 			log.Printf("Warning: failed to insert file %s: %v", relativePath, err)
