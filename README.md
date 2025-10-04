@@ -97,8 +97,6 @@ List all module examples for automation accounts
 
 The indexed data is stored in a SQLite database file, which you can query also directly:
 
-**Basic queries**
-
 `sqlite3 index.db "SELECT name, description FROM modules LIMIT 10"`
 
 `sqlite3 index.db "SELECT name FROM modules WHERE name LIKE '%storage%'"`
