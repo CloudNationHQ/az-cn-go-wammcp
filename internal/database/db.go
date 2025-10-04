@@ -4,6 +4,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -87,13 +88,11 @@ func New(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Enable foreign keys
 	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
-	// Initialize schema
 	if _, err := conn.Exec(Schema); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
@@ -104,6 +103,11 @@ func New(dbPath string) (*DB, error) {
 
 func (db *DB) Close() error {
 	return db.conn.Close()
+}
+
+func escapeFTS5(query string) string {
+	query = strings.ReplaceAll(query, `"`, `""`)
+	return `"` + query + `"`
 }
 
 func (db *DB) InsertModule(m *Module) (int64, error) {
@@ -187,7 +191,7 @@ func (db *DB) SearchModules(query string, limit int) ([]Module, error) {
 		WHERE modules_fts MATCH ?
 		ORDER BY rank
 		LIMIT ?
-	`, query, limit)
+	`, escapeFTS5(query), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +253,7 @@ func (db *DB) SearchFiles(query string, limit int) ([]ModuleFile, error) {
 		WHERE files_fts MATCH ?
 		ORDER BY rank
 		LIMIT ?
-	`, query, limit)
+	`, escapeFTS5(query), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -455,4 +459,15 @@ func (db *DB) ClearModuleData(moduleID int64) error {
 	}
 
 	return tx.Commit()
+}
+
+func (db *DB) DeleteModuleByID(moduleID int64) error {
+	_, err := db.conn.Exec(`DELETE FROM modules WHERE id = ?`, moduleID)
+	return err
+}
+
+func (db *DB) DeleteChildModules(parentName string) error {
+	pattern := parentName + "//%"
+	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\\'`, pattern)
+	return err
 }
