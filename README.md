@@ -109,3 +109,17 @@ The indexed data is stored in a SQLite database file, which you can query also d
   JOIN module_resources r ON m.id = r.module_id
   WHERE r.resource_type = 'azurerm_storage_account'"
 `
+
+## Contributors
+
+We welcome contributions from the community! Whether it's reporting a bug, suggesting a new feature, or submitting a pull request, your input is highly valued.
+
+For more information, please see our contribution [guidelines](./CONTRIBUTING.md). <br><br>
+
+<a href="https://github.com/cloudnationhq/ac-cn-wam-mcp/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=cloudnationhq/ac-cn-wam-mcp" />
+</a>
+
+## License
+
+MIT Licensed. See [LICENSE](https://github.com/cloudnationhq/terraform-azure-vnet/blob/main/LICENSE) for full details.
