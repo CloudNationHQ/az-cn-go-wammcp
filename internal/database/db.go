@@ -471,3 +471,12 @@ func (db *DB) DeleteChildModules(parentName string) error {
 	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\\'`, pattern)
 	return err
 }
+
+func (db *DB) SetModuleHasExamples(moduleID int64, hasExamples bool) error {
+	_, err := db.conn.Exec(`
+		UPDATE modules
+		SET has_examples = ?
+		WHERE id = ?
+	`, hasExamples, moduleID)
+	return err
+}
