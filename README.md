@@ -1,4 +1,4 @@
-# Wam MCP Server
+# wammsp [![Go Reference](https://pkg.go.dev/badge/github.com/cloudnationhq/ac-cn-wam-msp.svg)](https://pkg.go.dev/github.com/cloudnationhq/ac-cn-wam-msp)
 
 An MCP (Model Context Protocol) server that provides comprehensive knowledge about CloudNation's Terraform modules for Azure infrastructure.
 
