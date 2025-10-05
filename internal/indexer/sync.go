@@ -344,11 +344,9 @@ func (s *Syncer) parseModulesAndSubmodules(moduleID int64, submoduleIDs []int64,
 }
 
 func (s *Syncer) markModuleHasExamples(moduleID int64) {
-	module := &database.Module{
-		ID:          moduleID,
-		HasExamples: true,
+	if err := s.db.SetModuleHasExamples(moduleID, true); err != nil {
+		log.Printf("Warning: failed to flag module %d as having examples: %v", moduleID, err)
 	}
-	s.db.InsertModule(module)
 }
 
 func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (bool, []int64, error) {
