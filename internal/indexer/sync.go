@@ -14,6 +14,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
@@ -28,7 +29,10 @@ type Syncer struct {
 	db           *database.DB
 	githubClient *GitHubClient
 	org          string
+	workerCount  int
 }
+
+const defaultWorkerCount = 4
 
 type GitHubRepo struct {
 	Name        string `json:"name"`
@@ -103,7 +107,36 @@ func NewSyncer(db *database.DB, token string, org string) *Syncer {
 		db:           db,
 		githubClient: client,
 		org:          org,
+		workerCount:  defaultWorkerCount,
 	}
+}
+
+func (s *Syncer) workerCountFor(total int) int {
+	if total <= 1 {
+		if total < 1 {
+			return 0
+		}
+		return 1
+	}
+
+	count := s.workerCount
+	if count <= 0 {
+		count = defaultWorkerCount
+	}
+
+	if s.githubClient != nil && s.githubClient.rateLimit != nil && s.githubClient.rateLimit.maxTokens > 0 && count > s.githubClient.rateLimit.maxTokens {
+		count = s.githubClient.rateLimit.maxTokens
+	}
+
+	if count > total {
+		count = total
+	}
+
+	if count < 1 {
+		count = 1
+	}
+
+	return count
 }
 
 func (s *Syncer) SyncAll() (*SyncProgress, error) {
@@ -118,18 +151,7 @@ func (s *Syncer) SyncAll() (*SyncProgress, error) {
 	progress.TotalRepos = len(repos)
 	log.Printf("Found %d repositories", len(repos))
 
-	for _, repo := range repos {
-		progress.CurrentRepo = repo.Name
-		log.Printf("Syncing repository: %s (%d/%d)", repo.Name, progress.ProcessedRepos+1, progress.TotalRepos)
-
-		if err := s.syncRepository(repo); err != nil {
-			errMsg := fmt.Sprintf("Failed to sync %s: %v", repo.Name, err)
-			log.Println(errMsg)
-			progress.Errors = append(progress.Errors, errMsg)
-		}
-
-		progress.ProcessedRepos++
-	}
+	s.processRepoQueue(repos, progress, nil)
 
 	log.Printf("Sync completed: %d/%d repositories synced successfully",
 		progress.ProcessedRepos-len(progress.Errors), progress.TotalRepos)
@@ -150,37 +172,40 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 	progress.TotalRepos = len(repos)
 	log.Printf("Found %d repositories", len(repos))
 
+	reposToSync := make([]GitHubRepo, 0, len(repos))
+
 	for _, repo := range repos {
 		progress.CurrentRepo = repo.Name
 
 		existingModule, err := s.db.GetModule(repo.Name)
-
 		if err != nil {
 			log.Printf("Module %s not found in DB (error: %v), will sync", repo.Name, err)
-		} else if existingModule == nil {
+			reposToSync = append(reposToSync, repo)
+			continue
+		}
+
+		if existingModule == nil {
 			log.Printf("Module %s not found in DB (nil), will sync", repo.Name)
-		} else if existingModule.LastUpdated == repo.UpdatedAt {
+			reposToSync = append(reposToSync, repo)
+			continue
+		}
+
+		if existingModule.LastUpdated == repo.UpdatedAt {
 			log.Printf("Skipping %s (already up-to-date)", repo.Name)
 			progress.SkippedRepos++
 			progress.ProcessedRepos++
 			continue
-		} else {
-			log.Printf("Module %s needs update: DB='%s' vs GitHub='%s'", repo.Name, existingModule.LastUpdated, repo.UpdatedAt)
 		}
 
-		log.Printf("Syncing repository: %s (%d/%d)", repo.Name, progress.ProcessedRepos+1, progress.TotalRepos)
-
-		syncErr := s.syncRepository(repo)
-		if syncErr != nil {
-			errMsg := fmt.Sprintf("Failed to sync %s: %v", repo.Name, syncErr)
-			log.Println(errMsg)
-			progress.Errors = append(progress.Errors, errMsg)
-		} else {
-			progress.UpdatedRepos = append(progress.UpdatedRepos, repo.Name)
-		}
-
-		progress.ProcessedRepos++
+		log.Printf("Module %s needs update: DB='%s' vs GitHub='%s'", repo.Name, existingModule.LastUpdated, repo.UpdatedAt)
+		reposToSync = append(reposToSync, repo)
 	}
+
+	onSuccess := func(p *SyncProgress, repo GitHubRepo) {
+		p.UpdatedRepos = append(p.UpdatedRepos, repo.Name)
+	}
+
+	s.processRepoQueue(reposToSync, progress, onSuccess)
 
 	syncedCount := len(progress.UpdatedRepos)
 
@@ -188,6 +213,73 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 		syncedCount, progress.TotalRepos, progress.SkippedRepos, len(progress.Errors))
 
 	return progress, nil
+}
+
+func (s *Syncer) processRepoQueue(repos []GitHubRepo, progress *SyncProgress, onSuccess func(*SyncProgress, GitHubRepo)) {
+	if len(repos) == 0 {
+		return
+	}
+
+	workerCount := s.workerCountFor(len(repos))
+	var startedCounter atomic.Int64
+	var mu sync.Mutex
+	startOffset := int64(progress.ProcessedRepos)
+
+	handleRepo := func(repo GitHubRepo) {
+		seq := startOffset + startedCounter.Add(1)
+		log.Printf("Syncing repository: %s (%d/%d)", repo.Name, seq, progress.TotalRepos)
+
+		mu.Lock()
+		progress.CurrentRepo = repo.Name
+		mu.Unlock()
+
+		err := s.syncRepository(repo)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to sync %s: %v", repo.Name, err)
+			log.Println(errMsg)
+			mu.Lock()
+			progress.Errors = append(progress.Errors, errMsg)
+			progress.ProcessedRepos++
+			progress.CurrentRepo = repo.Name
+			mu.Unlock()
+			return
+		}
+
+		mu.Lock()
+		progress.ProcessedRepos++
+		progress.CurrentRepo = repo.Name
+		if onSuccess != nil {
+			onSuccess(progress, repo)
+		}
+		mu.Unlock()
+	}
+
+	if workerCount <= 1 {
+		for _, repo := range repos {
+			handleRepo(repo)
+		}
+		return
+	}
+
+	jobs := make(chan GitHubRepo)
+	var wg sync.WaitGroup
+
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for repo := range jobs {
+				handleRepo(repo)
+			}
+		}()
+	}
+
+	for _, repo := range repos {
+		jobs <- repo
+	}
+
+	close(jobs)
+	wg.Wait()
 }
 
 func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
