@@ -1,36 +1,36 @@
-# wamcp [![Go Reference](https://pkg.go.dev/badge/github.com/cloudnationhq/ac-cn-wam-msp.svg)](https://pkg.go.dev/github.com/cloudnationhq/ac-cn-wam-msp)
+# wamcp [![Go Reference](https://pkg.go.dev/badge/github.com/cloudnationhq/az-cn-wam-mcp.svg)](https://pkg.go.dev/github.com/cloudnationhq/az-cn-wam-mcp)
 
-An MCP (Model Context Protocol) server that provides comprehensive knowledge about CloudNation's Terraform modules for Azure infrastructure.
+An MCP (Model Context Protocol) server that indexes, analyzes, and serves CloudNation's Terraform modules for Azure on demand to MCP-compatible AI agents.
 
 ## Features
 
 **Module Discovery**
 
-List and search all available Terraform modules
+List and search all available Terraform modules with fast, FTS-backed lookups
 
 **Code Search**
 
-Search across all module code for specific patterns
+Search across all module code (any .tf file) for patterns, resources, or free text
 
 **Module Analysis**
 
-Get detailed info on variables, outputs, and resources
+Get detailed info on variables, outputs, resources, and examples in one response
 
 **Pattern Comparison**
 
-Compare code patterns (like dynamic blocks) across modules
+Compare code patterns (e.g., dynamic blocks, lifecycle, identity) across modules
 
 **Example Access**
 
-Retrieve usage examples for any module
+Retrieve usage examples per module, including example file contents
 
 **Variable Extraction**
 
-Get complete variable definitions with types and defaults
+Extract complete variable definitions including types, defaults, and sensitivity
 
 **GitHub Sync**
 
-Automatically syncs and indexes modules from GitHub repositories into a local SQLite database for fast queries
+Syncs and indexes modules from GitHub into a local SQLite database for fast queries. Supports incremental updates and parallel syncing with rate‑limit awareness for larger orgs.
 
 ## Prerequisites
 
@@ -48,13 +48,15 @@ The server accepts command-line flags for configuration:
 
 --org - GitHub organization name (default: "cloudnationhq")
 
---token - GitHub personal access token (optional)
+--token - GitHub personal access token (optional; improves rate limits)
 
 --db - Path to SQLite database file (default: "index.db")
 
+Example: `./bin/az-cn-wam-mcp --org cloudnationhq --db index.db --token YOUR_TOKEN`
+
 **Adding to AI agents**
 
-To use this MCP server with AI agents like claude, opencode, codex or other compatible ones, add it to their configuration file:
+To use this MCP server with AI agents (Claude Desktop, OpenCode, Codex CLI, or other MCP-compatible clients), add it to their configuration file:
 
 ```json
 {
@@ -67,35 +69,47 @@ To use this MCP server with AI agents like claude, opencode, codex or other comp
 }
 ```
 
-The token is optional and only requires `repo → public_repo` rights.
+The token is optional and only requires `repo → public_repo` rights. Without a token, syncing still works but may hit lower rate limits.
 
 ## Build from source
 
 make build
 
+Run the server after building:
+
+`./bin/az-cn-wam-mcp --org cloudnationhq --db index.db`
+
 ## Example Queries
 
-**Once configured, you can ask any agentic agent that supports additional mcp servers:**
+**Once configured, you can ask any agentic agent that supports additional MCP servers:**
 
-List all network related modules
+Search all network related modules.
 
-Get module info for vnet and show required variables
+Show module info for vnet and show required variables.
 
-Generate example usage for storage and private link
+Show example usage for storage with private link.
 
-Compare the pattern dynamic block identity across all modules and show the inconsistencies and flavours
+Compare dynamic "identity" across all modules and show only the ones that are different in code.
 
-Search for the resource nat rules in the virtual wan module
+Search code for resource azurerm_nat_rule in virtual wan and show it.
 
-Search for the dynamic block delegation in the vnet module
+Search code for dynamic "delegation" in vnet and show it.
 
-Get module info for keyvault and show all resources and how they relate
+Show module info for keyvault and list all resources.
 
-List all module examples for automation accounts
+List all examples for automation account.
+
+Search code for validation { in the private endpoint module
+
+Search code for for_each = merge(flatten and name the modules
+
+Start full module sync.
+
+Sync only updated modules.
 
 ## Direct Database Access
 
-The indexed data is stored in a SQLite database file, which you can query also directly:
+The indexed data is stored in a SQLite database file with FTS5 enabled. You can query it directly for ad‑hoc inspection:
 
 `sqlite3 index.db "SELECT name, description FROM modules LIMIT 10"`
 
@@ -120,4 +134,4 @@ For more information, please see our contribution [guidelines](./CONTRIBUTING.md
 
 ## License
 
-MIT Licensed. See [LICENSE](https://github.com/cloudnationhq/terraform-azure-vnet/blob/main/LICENSE) for full details.
+MIT Licensed. See [LICENSE](./LICENSE) for full details.
