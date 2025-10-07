@@ -43,10 +43,19 @@ type Server struct {
 	writer    io.Writer
 	jobs      map[string]*SyncJob
 	jobsMutex sync.RWMutex
+	dbPath    string
+	token     string
+	org       string
+	dbMutex   sync.Mutex
 }
 
-func NewServer(db *database.DB, syncer *indexer.Syncer) *Server {
-	return &Server{db: db, syncer: syncer, jobs: make(map[string]*SyncJob)}
+func NewServer(dbPath, token, org string) *Server {
+	return &Server{
+		dbPath: dbPath,
+		token:  token,
+		org:    org,
+		jobs:   make(map[string]*SyncJob),
+	}
 }
 
 type SyncJob struct {
@@ -57,6 +66,28 @@ type SyncJob struct {
 	CompletedAt *time.Time
 	Progress    *indexer.SyncProgress
 	Error       string
+}
+
+// ensureDB initializes the database and syncer if not already initialized
+func (s *Server) ensureDB() error {
+	s.dbMutex.Lock()
+	defer s.dbMutex.Unlock()
+
+	if s.db != nil {
+		return nil
+	}
+
+	log.Printf("Initializing database at: %s", s.dbPath)
+	db, err := database.New(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	s.db = db
+	s.syncer = indexer.NewSyncer(db, s.token, s.org)
+	log.Println("Database initialized successfully")
+
+	return nil
 }
 
 func (s *Server) Run(ctx context.Context, r io.Reader, w io.Writer) error {
@@ -383,6 +414,10 @@ func (s *Server) handleToolsCall(msg Message) {
 }
 
 func (s *Server) handleSyncModules() map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	job := s.startSyncJob("full_sync", func() (*indexer.SyncProgress, error) {
 		log.Println("Starting full repository sync (async job)...")
 		return s.syncer.SyncAll()
@@ -399,6 +434,10 @@ func (s *Server) handleSyncModules() map[string]any {
 }
 
 func (s *Server) handleSyncUpdatesModules() map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	log.Println("Starting incremental repository sync (updates only)...")
 
 	progress, err := s.syncer.SyncUpdates()
@@ -441,6 +480,10 @@ func (s *Server) handleSyncStatus(args any) map[string]any {
 }
 
 func (s *Server) handleListModules() map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	modules, err := s.db.ListModules()
 	if err != nil {
 		return ErrorResponse(fmt.Sprintf("Error loading modules: %v", err))
@@ -455,6 +498,10 @@ func (s *Server) handleListModules() map[string]any {
 }
 
 func (s *Server) handleSearchModules(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	searchArgs, err := UnmarshalArgs[struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -477,6 +524,10 @@ func (s *Server) handleSearchModules(args any) map[string]any {
 }
 
 func (s *Server) handleGetModuleInfo(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	moduleArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
 	}](args)
@@ -499,6 +550,10 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 }
 
 func (s *Server) handleSearchCode(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	searchArgs, err := UnmarshalArgs[struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -529,6 +584,10 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 }
 
 func (s *Server) handleGetFileContent(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	fileArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
 		FilePath   string `json:"file_path"`
@@ -547,6 +606,10 @@ func (s *Server) handleGetFileContent(args any) map[string]any {
 }
 
 func (s *Server) handleExtractVariableDefinition(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	varArgs, err := UnmarshalArgs[struct {
 		ModuleName   string `json:"module_name"`
 		VariableName string `json:"variable_name"`
@@ -600,6 +663,10 @@ Loop:
 }
 
 func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	patternArgs, err := UnmarshalArgs[struct {
 		Pattern        string `json:"pattern"`
 		FileType       string `json:"file_type"`
@@ -738,6 +805,10 @@ func paginateResults(results []formatter.PatternMatch, offset, limit int) []form
 }
 
 func (s *Server) handleListModuleExamples(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	moduleArgs, err := UnmarshalArgs[struct {
 		ModuleName string `json:"module_name"`
 	}](args)
@@ -775,6 +846,10 @@ func buildExampleMap(files []database.ModuleFile) map[string][]string {
 }
 
 func (s *Server) handleGetExampleContent(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
 	exampleArgs, err := UnmarshalArgs[struct {
 		ModuleName  string `json:"module_name"`
 		ExampleName string `json:"example_name"`

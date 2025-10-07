@@ -6,8 +6,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
 	"github.com/cloudnationhq/az-cn-wam-mcp/pkg/mcp"
 )
 
@@ -19,19 +17,9 @@ func main() {
 
 	log.SetOutput(os.Stderr)
 	log.Println("Starting Azure CloudNation WAM MCP Server")
+	log.Printf("Database will be initialized at: %s (on first sync)", *dbPath)
 
-	db, err := database.New(*dbPath)
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
-	defer db.Close()
-
-	log.Printf("Database initialized at: %s", *dbPath)
-
-	syncer := indexer.NewSyncer(db, *token, *org)
-	log.Println("Ready to sync repositories")
-
-	server := mcp.NewServer(db, syncer)
+	server := mcp.NewServer(*dbPath, *token, *org)
 	if err := server.Run(context.Background(), os.Stdin, os.Stdout); err != nil {
 		log.Printf("Server stopped: %v", err)
 	}
