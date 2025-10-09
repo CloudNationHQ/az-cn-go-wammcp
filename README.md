@@ -38,7 +38,7 @@ Go 1.23.0 or later
 
 SQLite (with FTS5 support - included in most modern installations)
 
-GitHub Personal Access Token (optional, for higher rate limits)
+GitHub Personal Access Token (optional, for higher rate limits) with `repo → public_repo` rights.
 
 ## Configuration
 
@@ -56,7 +56,7 @@ Example: `./bin/az-cn-wam-mcp --org cloudnationhq --db index.db --token YOUR_TOK
 
 **Adding to AI agents**
 
-To use this MCP server with AI agents (Claude Desktop, OpenCode, Codex CLI, or other MCP-compatible clients), add it to their configuration file:
+To use this MCP server with AI agents (Claude CLI, Copilot, Codex CLI, or other MCP-compatible clients), add it to their configuration file:
 
 ```json
 {
@@ -68,8 +68,6 @@ To use this MCP server with AI agents (Claude Desktop, OpenCode, Codex CLI, or o
   }
 }
 ```
-
-The token is optional and only requires `repo → public_repo` rights. Without a token, syncing still works but may hit lower rate limits.
 
 ## Build from source
 
@@ -91,7 +89,7 @@ Show example usage for storage with private link.
 
 Compare dynamic "identity" across all modules and show only the ones that are different in code.
 
-Search code for resource azurerm_nat_rule in virtual wan and show it.
+Search inside the vwan module for any resources that manage nat rules and show it.
 
 Search code for dynamic "delegation" in vnet and show it.
 
@@ -106,6 +104,18 @@ Search code for for_each = merge(flatten and name the modules
 Start full module sync.
 
 Sync only updated modules.
+
+## Notes
+
+Use a low reasoning model for the sample queries above and other bulk lookups.
+
+Switch to the higher reasoning models when you need to interpret differences, plan changes, or debug behavior.
+
+GitHub token is optional; without it, syncing still works but may hit lower API rate limits. Pass `--token` to raise limits.
+
+Initial full sync takes ~30 seconds on first run. It is optimized via gitHub tarball archives and a bounded worker pool (rate‑limit aware).
+
+Deleting the database file `index.db` will cause a full rebuild the next time the tool gets called.
 
 ## Direct Database Access
 
