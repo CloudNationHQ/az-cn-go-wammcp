@@ -1,6 +1,6 @@
-# wamcp [![Go Reference](https://pkg.go.dev/badge/github.com/cloudnationhq/az-cn-wam-mcp.svg)](https://pkg.go.dev/github.com/cloudnationhq/az-cn-wam-mcp)
+# wamcp
 
-An MCP (Model Context Protocol) server that indexes, analyzes, and serves CloudNation's Terraform modules for Azure on demand to MCP-compatible AI agents.
+An MCP (Model Context Protocol) server that indexes, analyzes, and serves cloudnation's terraform modules for azure on demand to MCP compatible AI agents.
 
 ## Features
 
@@ -52,8 +52,6 @@ The server accepts command-line flags for configuration:
 
 --db - Path to SQLite database file (default: "index.db")
 
-Example: `./bin/az-cn-wam-mcp --org cloudnationhq --db index.db --token YOUR_TOKEN`
-
 **Adding to AI agents**
 
 To use this MCP server with AI agents (Claude CLI, Copilot, Codex CLI, or other MCP-compatible clients), add it to their configuration file:
@@ -72,10 +70,6 @@ To use this MCP server with AI agents (Claude CLI, Copilot, Codex CLI, or other 
 ## Build from source
 
 make build
-
-Run the server after building:
-
-`./bin/az-cn-wam-mcp --org cloudnationhq --db index.db`
 
 ## Example Queries
 
@@ -97,25 +91,25 @@ Show module info for keyvault and list all resources.
 
 List all examples for automation account.
 
-Search code for validation { in the private endpoint module
+Search code for validation { in the private endpoint module.
 
-Search code for for_each = merge(flatten and name the modules
+Search code for for_each = merge(flatten and name the modules.
 
-Start full module sync.
+Sync modules.
 
-Sync only updated modules.
+Sync updates modules.
 
 ## Notes
 
-Use a low reasoning model for the sample queries above and other bulk lookups.
-
-Switch to the higher reasoning models when you need to interpret differences, plan changes, or debug behavior.
+It might be quicker to use a low reasoning model for the sample queries above, then switch to a higher one for interpreting, planning, or debugging.
 
 GitHub token is optional; without it, syncing still works but may hit lower API rate limits. Pass `--token` to raise limits.
 
 Initial full sync takes ~30 seconds on first run. It is optimized via gitHub tarball archives and a bounded worker pool (rate‑limit aware).
 
 Deleting the database file `index.db` will cause a full rebuild the next time the tool gets called.
+
+Archived, private and empty repositories will be skipped by default.
 
 ## Direct Database Access
 
