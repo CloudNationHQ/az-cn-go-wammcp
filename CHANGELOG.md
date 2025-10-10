@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.0](https://github.com/CloudNationHQ/ac-cn-wam-mcp/compare/v1.1.1...v1.2.0) (2025-10-10)
+
+
+### Features
+
+* decompose large functions and eliminate code duplication across server, sync, and parser modules ([#13](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/13)) ([ecb3ea8](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/ecb3ea8da18191cfe9f7fb2e097ebb0dc63259a2))
+* overhaul sync and indexing for performance and reliability ([#11](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/11)) ([9fd8a4a](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/9fd8a4a08e0d5631d32dbf5b0a3973a887927984))
+* parallelize repository sync with worker pool ([#16](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/16)) ([289bf5f](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/289bf5f7b71d1dd16aa65f3e93b408db3af2caa6))
+* update documentation ([#17](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/17)) ([b648462](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/b64846227e4a9c8a9d0bcca47259b93d597dc88a))
+
+
+### Bug Fixes
+
+* fix has_examples flag updates ([#14](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/14)) ([dc3df01](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/dc3df01e084c49363168de98349e7f414daf45ee))
+* initialize database on first mcp tool use instead of server startup ([#15](https://github.com/CloudNationHQ/ac-cn-wam-mcp/issues/15)) ([e192996](https://github.com/CloudNationHQ/ac-cn-wam-mcp/commit/e1929962efb97cf36d250ecd54b7c6e203afea68))
+
 ## [1.1.1](https://github.com/CloudNationHQ/ac-cn-wam-mcp/compare/v1.1.0...v1.1.1) (2025-10-01)
 
 
