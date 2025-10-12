@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
 )
 
 func CodeSearchResults(query string, files []database.ModuleFile, getModuleName func(int64) string) string {

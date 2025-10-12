@@ -1,11 +1,11 @@
-module github.com/cloudnationhq/az-cn-wam-mcp
+module github.com/cloudnationhq/az-cn-go-wammcp
 
-go 1.23.0
+go 1.25.1
 
 require (
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/mattn/go-sqlite3 v1.14.24
-	github.com/zclconf/go-cty v1.16.3
+	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/zclconf/go-cty v1.17.0
 )
 
 require (
