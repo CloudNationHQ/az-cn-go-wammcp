@@ -105,7 +105,7 @@ It might be quicker to use a low reasoning model for the sample queries above, t
 
 GitHub token is optional; without it, syncing still works but may hit lower API rate limits. Pass `--token` to raise limits.
 
-Initial full sync takes ~30 seconds on first run. It is optimized via gitHub tarball archives and a bounded worker pool (rate‑limit aware).
+Initial full sync takes ~20 seconds on first run. It is optimized via gitHub tarball archives and a bounded worker pool (rate‑limit aware).
 
 Deleting the database file `index.db` will cause a full rebuild the next time the tool gets called.
 
