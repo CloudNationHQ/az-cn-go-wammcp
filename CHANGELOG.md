@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.2.0...v1.3.0) (2025-10-12)
+
+
+### Features
+
+* rename repository ([#18](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/18)) ([f4c3733](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/f4c373358dffaae4e9cc7ef2c42cfd44f60031fa))
+
 ## [1.2.0](https://github.com/CloudNationHQ/ac-cn-wam-mcp/compare/v1.1.1...v1.2.0) (2025-10-10)
 
 
