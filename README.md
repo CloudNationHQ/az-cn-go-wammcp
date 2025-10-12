@@ -1,4 +1,4 @@
-# wamcp
+# wammcp
 
 An MCP (Model Context Protocol) server that indexes, analyzes, and serves cloudnation's terraform modules for azure on demand to MCP compatible AI agents.
 
