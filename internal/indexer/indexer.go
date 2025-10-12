@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/parser"
-	"github.com/cloudnationhq/az-cn-wam-mcp/pkg/terraform"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/parser"
+	"github.com/cloudnationhq/az-cn-go-wammcp/pkg/terraform"
 )
 
 type Indexer struct {

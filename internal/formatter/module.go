@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
 )
 
 func ModuleList(modules []database.Module) string {

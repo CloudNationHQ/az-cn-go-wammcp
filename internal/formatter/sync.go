@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/indexer"
 )
 
 func SyncProgress(progress *indexer.SyncProgress) string {

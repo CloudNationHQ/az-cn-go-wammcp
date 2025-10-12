@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/util"
-	"github.com/cloudnationhq/az-cn-wam-mcp/pkg/terraform"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/util"
+	"github.com/cloudnationhq/az-cn-go-wammcp/pkg/terraform"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"

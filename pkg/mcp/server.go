@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/formatter"
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/indexer"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/formatter"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/indexer"
 )
 
 type Message struct {

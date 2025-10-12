@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/pkg/mcp"
+	"github.com/cloudnationhq/az-cn-go-wammcp/pkg/mcp"
 )
 
 func main() {

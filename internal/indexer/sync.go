@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/database"
-	"github.com/cloudnationhq/az-cn-wam-mcp/internal/util"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
+	"github.com/cloudnationhq/az-cn-go-wammcp/internal/util"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
