@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.4.0...v1.5.0) (2025-10-17)
+
+
+### Features
+
+* structural search filters (kind/type_prefix/has), module info structural summary, and improved related-modules scoring using AST block index ([#22](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/22)) ([7a0e951](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/7a0e951b49e726252ab37b18c4221c373292f4da))
+
 ## [1.4.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.3.0...v1.4.0) (2025-10-17)
 
 
