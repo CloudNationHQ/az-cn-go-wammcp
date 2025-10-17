@@ -79,7 +79,7 @@ make build
 
 **Once configured, you can ask any agentic agent that supports additional MCP servers:**
 
-**Networking**
+`Networking`
 
 Show all networking modules grouped by category (core networking, connectivity, name resolution, private access, security, ingress/egress, monitoring), including submodules.
 
@@ -87,13 +87,13 @@ List modules related to vnet based on shared tags/resources, and include brief d
 
 Regarding the previous question, how does evh relate to vnet?
 
-**Module Info**
+`Module Info`
 
 Show module info for vnet and highlight only the required variables.
 
 Show module info for kv and list all resources it creates.
 
-**Examples**
+`Examples`
 
 List all examples for terraform-azure-aa.
 
@@ -101,7 +101,7 @@ List the examples for sa, then open the example that demonstrates a private endp
 
 For terraform-azure-func, list examples and open the private-endpoint example in full code.
 
-**AST Pattern Compare (block‑aware)**
+`AST Pattern Compare (block‑aware)`
 
 Compare dynamic "identity" across modules and show one example per unique pattern, with full code.
 
@@ -111,7 +111,7 @@ Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_cha
 
 In vnet, show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
 
-**Focused Code Queries**
+`Focused Code Queries`
 
 Search code for key vault/keyvault access_policy and show matching files and snippets.
 
@@ -121,21 +121,21 @@ In vwan and vgw, show resource "azurerm_vpn_gateway_nat_rule" with full blocks.
 
 In vnet, show dynamic "delegation" with full blocks.
 
-**Sync and Maintenance**
+`Sync and Maintenance`
 
 Run a full sync of all modules and report the job ID; then show the sync status for that job ID.
 
 Run an incremental sync (updates only) and report the job ID; then show the sync status for that job ID.
 
 **Tips**
-`
+```
 For AST mode, include quotes around types/labels in the pattern:
   resource "azurerm_...", dynamic "identity", lifecycle
 Add attribute filters with has: to narrow results:
   resource "azurerm_" has:lifecycle.ignore_changes
   dynamic "identity" has:identity_ids
 Use show_full_blocks: true when you want the exact HCL code, or leave it false for a compact table.
-`
+```
 
 ## Notes
 
