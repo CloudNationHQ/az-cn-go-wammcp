@@ -17,8 +17,8 @@ import (
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/formatter"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/indexer"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/util"
-	"github.com/hashicorp/hcl/v2/hclparse"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
+    "github.com/hashicorp/hcl/v2/hclparse"
+    "github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 type Message struct {
@@ -221,24 +221,37 @@ func (s *Server) handleToolsList(msg Message) {
 				"required": []string{"module_name"},
 			},
 		},
-		{
-			"name":        "search_code",
-			"description": "Search across all Terraform code files for specific patterns or text",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Text or pattern to search for in code",
-					},
-					"limit": map[string]any{
-						"type":        "number",
-						"description": "Maximum number of results (default: 20)",
-					},
-				},
-				"required": []string{"query"},
-			},
-		},
+        {
+            "name":        "search_code",
+            "description": "Search across all Terraform code files for specific patterns or text",
+            "inputSchema": map[string]any{
+                "type": "object",
+                "properties": map[string]any{
+                    "query": map[string]any{
+                        "type":        "string",
+                        "description": "Text or pattern to search for in code",
+                    },
+                    "limit": map[string]any{
+                        "type":        "number",
+                        "description": "Maximum number of results (default: 20)",
+                    },
+                    "kind": map[string]any{
+                        "type":        "string",
+                        "description": "Optional structural filter: resource|dynamic|lifecycle",
+                    },
+                    "type_prefix": map[string]any{
+                        "type":        "string",
+                        "description": "Optional resource type prefix (e.g., azurerm_storage_account)",
+                    },
+                    "has": map[string]any{
+                        "type":        "array",
+                        "items": map[string]any{"type": "string"},
+                        "description": "Optional attribute presence filters (e.g., for_each, lifecycle.ignore_changes)",
+                    },
+                },
+                "required": []string{"query"},
+            },
+        },
 		{
 			"name":        "get_file_content",
 			"description": "Get the full content of a specific file from a module (e.g., variables.tf, main.tf, outputs.tf)",
@@ -586,8 +599,13 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 	resources, _ := s.db.GetModuleResources(module.ID)
 	files, _ := s.db.GetModuleFiles(module.ID)
 
-	text := formatter.ModuleInfo(module, variables, outputs, resources, files)
-	return SuccessResponse(text)
+    // structural summary via AST index
+    summary, _ := s.db.SummarizeModuleStructure(module.ID)
+    text := formatter.ModuleInfo(module, variables, outputs, resources, files)
+    if summary != nil {
+        text += formatter.StructuralSummaryValues(summary.ResourceCount, summary.LifecycleCount, summary.ResourcesWithIgnoreChanges, summary.TopResourceTypes, summary.DynamicLabels)
+    }
+    return SuccessResponse(text)
 }
 
 func (s *Server) handleSearchCode(args any) map[string]any {
@@ -595,10 +613,13 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
 	}
 
-	searchArgs, err := UnmarshalArgs[struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
-	}](args)
+    searchArgs, err := UnmarshalArgs[struct {
+        Query      string   `json:"query"`
+        Limit      int      `json:"limit"`
+        Kind       string   `json:"kind"`
+        TypePrefix string   `json:"type_prefix"`
+        Has        []string `json:"has"`
+    }](args)
 	if err != nil {
 		return ErrorResponse("Error: Invalid search query")
 	}
@@ -618,6 +639,17 @@ func (s *Server) handleSearchCode(args any) map[string]any {
         for _, f := range files {
             if _, ok := seen[f.ID]; ok {
                 continue
+            }
+            // Apply optional structural filters using the AST index
+            if searchArgs.Kind != "" || searchArgs.TypePrefix != "" || len(searchArgs.Has) > 0 {
+                mod, merr := s.db.GetModuleByID(f.ModuleID)
+                if merr != nil {
+                    continue
+                }
+                okStruct, herr := s.db.HCLBlockExists(mod.ID, f.FilePath, searchArgs.Kind, searchArgs.TypePrefix, searchArgs.Has)
+                if herr != nil || !okStruct {
+                    continue
+                }
             }
             seen[f.ID] = struct{}{}
             merged = append(merged, f)
@@ -799,6 +831,12 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType string) []formatter.PatternMatch {
     var results []formatter.PatternMatch
 
+    // First try the indexed AST block search for supported patterns
+    indexed := s.findPatternMatchesIndexed(pattern, fileType)
+    if len(indexed) > 0 {
+        return indexed
+    }
+
     for _, module := range modules {
         files, err := s.db.GetModuleFiles(module.ID)
         if err != nil {
@@ -838,6 +876,100 @@ func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType
         }
     }
 
+    return results
+}
+
+func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter.PatternMatch {
+    trimmed := strings.TrimSpace(pattern)
+    if trimmed == "" {
+        return nil
+    }
+
+    hasFilters := parseHasFilters(trimmed)
+    var blocks []database.HCLBlock
+    var err error
+    blockType := ""
+    typeLabel := ""
+    prefix := false
+
+    if want, ok := getQuotedArg(trimmed, "resource"); ok {
+        blockType = "resource"
+        typeLabel = want
+        prefix = true // resource supports prefix match
+    } else if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
+        blockType = "dynamic"
+        typeLabel = want
+        prefix = false
+    } else if strings.HasPrefix(trimmed, "lifecycle") {
+        blockType = "lifecycle"
+    } else {
+        return nil
+    }
+
+    blocks, err = s.db.QueryHCLBlocks(blockType, typeLabel, prefix)
+    if err != nil || len(blocks) == 0 {
+        return nil
+    }
+
+    var results []formatter.PatternMatch
+    for _, b := range blocks {
+        // Filter by file type if requested
+        if fileType != "" && !strings.HasSuffix(b.FilePath, "/"+fileType) && !strings.HasSuffix(b.FilePath, fileType) {
+            continue
+        }
+        // Apply has: filters against flattened attr paths
+        if len(hasFilters) > 0 {
+            ok := true
+            attrSet := make(map[string]struct{})
+            if b.AttrPaths.Valid {
+                // Iterate lines without allocating a slice
+                rest := b.AttrPaths.String
+                for {
+                    line, r, cut := strings.Cut(rest, "\n")
+                    if line != "" {
+                        attrSet[line] = struct{}{}
+                    }
+                    if !cut {
+                        break
+                    }
+                    rest = r
+                }
+            }
+            for _, f := range hasFilters {
+                if _, present := attrSet[f]; !present {
+                    ok = false
+                    break
+                }
+            }
+            if !ok {
+                continue
+            }
+        }
+
+        // Load file content to slice exact block
+        module, merr := s.db.GetModuleByID(b.ModuleID)
+        if merr != nil {
+            continue
+        }
+        f, ferr := s.db.GetFile(module.Name, b.FilePath)
+        if ferr != nil {
+            continue
+        }
+        start := int(b.StartByte)
+        end := int(b.EndByte)
+        if start < 0 { start = 0 }
+        if end > len(f.Content) { end = len(f.Content) }
+        if end < start { end = start }
+        code := strings.TrimSpace(f.Content[start:end])
+
+        results = append(results, formatter.PatternMatch{
+            ModuleName: module.Name,
+            FileName:   f.FileName,
+            Match:      code,
+            BlockType:  blockType,
+            Summary:    "",
+        })
+    }
     return results
 }
 
