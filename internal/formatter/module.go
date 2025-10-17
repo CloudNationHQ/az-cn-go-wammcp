@@ -83,6 +83,23 @@ func ModuleInfo(module *database.Module, variables []database.ModuleVariable, ou
 	return text.String()
 }
 
+func RelatedModules(moduleName string, related []database.Module) string {
+    var text strings.Builder
+    text.WriteString(fmt.Sprintf("# Related modules for %s\n\n", moduleName))
+    if len(related) == 0 {
+        text.WriteString("No related modules found.\n")
+        return text.String()
+    }
+    for _, m := range related {
+        text.WriteString(fmt.Sprintf("- %s", m.Name))
+        if m.Description != "" {
+            text.WriteString(fmt.Sprintf(" — %s", m.Description))
+        }
+        text.WriteString("\n")
+    }
+    return text.String()
+}
+
 func VariablesSection(variables []database.ModuleVariable) string {
 	var text strings.Builder
 	text.WriteString("## Variables\n\n")

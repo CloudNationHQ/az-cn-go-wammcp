@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
+    "sync"
+    "sync/atomic"
+    "time"
 
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/util"
@@ -264,15 +264,13 @@ func (s *Syncer) processRepoQueue(repos []GitHubRepo, progress *SyncProgress, on
 	jobs := make(chan GitHubRepo)
 	var wg sync.WaitGroup
 
-	for range workerCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for repo := range jobs {
-				handleRepo(repo)
-			}
-		}()
-	}
+    for range workerCount {
+        wg.Go(func() {
+            for repo := range jobs {
+                handleRepo(repo)
+            }
+        })
+    }
 
 	for _, repo := range repos {
 		jobs <- repo
@@ -329,10 +327,10 @@ func (s *Syncer) fetchRepositories() ([]GitHubRepo, error) {
 }
 
 func (s *Syncer) syncRepository(repo GitHubRepo) error {
-	moduleID, err := s.insertModuleMetadata(repo)
-	if err != nil {
-		return err
-	}
+    moduleID, err := s.insertModuleMetadata(repo)
+    if err != nil {
+        return err
+    }
 
 	if err := s.clearExistingModuleData(moduleID, repo.Name); err != nil {
 		log.Printf("Warning: failed to clear old data for %s: %v", repo.Name, err)
@@ -350,15 +348,35 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	if err := s.parseModulesAndSubmodules(moduleID, submoduleIDs, repo.Name); err != nil {
-		log.Printf("Warning: failed to parse terraform files: %v", err)
-	}
+    if err := s.parseModulesAndSubmodules(moduleID, submoduleIDs, repo.Name); err != nil {
+        log.Printf("Warning: failed to parse terraform files: %v", err)
+    }
 
-	if hasExamples {
-		s.markModuleHasExamples(moduleID)
-	}
+    if hasExamples {
+        s.markModuleHasExamples(moduleID)
+    }
 
-	return nil
+    // Persist tags for root and submodules to enable related-module queries and ranking.
+    if err := s.persistModuleTags(moduleID); err != nil {
+        log.Printf("Warning: failed to persist tags for %s: %v", repo.Name, err)
+    }
+    for _, childID := range submoduleIDs {
+        if err := s.persistModuleTags(childID); err != nil {
+            log.Printf("Warning: failed to persist tags for submodule %d of %s: %v", childID, repo.Name, err)
+        }
+    }
+
+    // Persist aliases for root and submodules to enable short-name resolution.
+    if err := s.persistModuleAliases(moduleID); err != nil {
+        log.Printf("Warning: failed to persist aliases for %s: %v", repo.Name, err)
+    }
+    for _, childID := range submoduleIDs {
+        if err := s.persistModuleAliases(childID); err != nil {
+            log.Printf("Warning: failed to persist aliases for submodule %d of %s: %v", childID, repo.Name, err)
+        }
+    }
+
+    return nil
 }
 
 func (s *Syncer) insertModuleMetadata(repo GitHubRepo) (int64, error) {
@@ -436,9 +454,141 @@ func (s *Syncer) parseModulesAndSubmodules(moduleID int64, submoduleIDs []int64,
 }
 
 func (s *Syncer) markModuleHasExamples(moduleID int64) {
-	if err := s.db.SetModuleHasExamples(moduleID, true); err != nil {
-		log.Printf("Warning: failed to flag module %d as having examples: %v", moduleID, err)
-	}
+    if err := s.db.SetModuleHasExamples(moduleID, true); err != nil {
+        log.Printf("Warning: failed to flag module %d as having examples: %v", moduleID, err)
+    }
+}
+
+// persistModuleTags derives lightweight tags from resources and module name, then stores them.
+func (s *Syncer) persistModuleTags(moduleID int64) error {
+    module, err := s.db.GetModuleByID(moduleID)
+    if err != nil {
+        return err
+    }
+    resources, err := s.db.GetModuleResources(moduleID)
+    if err != nil {
+        return err
+    }
+
+    // Derive tag weights
+    weights := make(map[string]int)
+
+    // From resource types: azurerm_x_y -> x, y (skip short/common tokens)
+    for _, r := range resources {
+        parts := strings.Split(r.ResourceType, "_")
+        for i, p := range parts {
+            if i == 0 { // provider prefix (e.g., azurerm)
+                continue
+            }
+            if len(p) <= 3 {
+                continue
+            }
+            weights[strings.ToLower(p)] += 2 // resource-derived tags get higher weight
+        }
+    }
+
+    // From module name: terraform-azure-foo-bar//modules/baz -> foo, bar, baz
+    name := module.Name
+    name = strings.ReplaceAll(name, "terraform-", "")
+    name = strings.ReplaceAll(name, "azure-", "")
+    name = strings.ReplaceAll(name, "//", "-")
+    // Iterate tokens without allocating a slice
+    lower := strings.ToLower(name)
+    for {
+        var token string
+        var ok bool
+        token, lower, ok = strings.Cut(lower, "-")
+        t := strings.TrimSpace(token)
+        if t != "" && t != "azure" && t != "modules" && t != "terraform" && len(t) > 3 {
+            weights[t] += 1
+        }
+        if !ok {
+            break
+        }
+    }
+
+    // Store
+    if err := s.db.ClearModuleTags(moduleID); err != nil {
+        log.Printf("Warning: failed clearing tags for %s: %v", module.Name, err)
+    }
+    for tag, w := range weights {
+        if err := s.db.InsertModuleTag(moduleID, tag, w, "derived"); err != nil {
+            log.Printf("Warning: failed inserting tag %s for %s: %v", tag, module.Name, err)
+        }
+    }
+    return nil
+}
+
+// persistModuleAliases generates simple aliases from module name, submodule key, and tags.
+func (s *Syncer) persistModuleAliases(moduleID int64) error {
+    module, err := s.db.GetModuleByID(moduleID)
+    if err != nil {
+        return err
+    }
+    tags, _ := s.db.GetModuleTags(moduleID)
+
+    // Base name cleanup
+    name := module.Name
+    name = strings.TrimPrefix(name, "terraform-azure-")
+    name = strings.TrimPrefix(name, "terraform-")
+    name = strings.TrimPrefix(name, "azure-")
+    name = strings.ReplaceAll(name, "//modules/", "-")
+
+    // Tokenize
+    tokens := []string{}
+    {
+        rest := name
+        for {
+            part, r, ok := strings.Cut(rest, "-")
+            t := strings.TrimSpace(part)
+            if t != "" && t != "modules" && t != "azure" && t != "terraform" {
+                tokens = append(tokens, t)
+            }
+            if !ok {
+                break
+            }
+            rest = r
+        }
+    }
+
+    // Build alias set with weights
+    type aliasW struct{ a string; w int }
+    aliasMap := map[string]int{}
+    add := func(a string, w int) {
+        if a == "" { return }
+        a = strings.ToLower(a)
+        if len(a) < 2 { return }
+        if aliasMap[a] < w { aliasMap[a] = w }
+    }
+
+    // Full simplified name
+    add(strings.Join(tokens, "-"), 3)
+    // Primary token (often the short name like vnet, vwan, pe, kv, agw)
+    if len(tokens) > 0 { add(tokens[0], 3) }
+    // Last token (submodule key like vnet-peering)
+    if len(tokens) > 1 { add(tokens[len(tokens)-1], 2) }
+    // All individual tokens
+    for _, t := range tokens { add(t, 2) }
+    // Acronym of tokens
+    if len(tokens) > 1 {
+        ac := ""
+        for _, t := range tokens { ac += string(t[0]) }
+        add(ac, 1)
+    }
+    // Tags as aliases (weighted lower than name-derived primary)
+    for _, tg := range tags {
+        add(tg.Tag, 1)
+    }
+
+    if err := s.db.ClearModuleAliases(moduleID); err != nil {
+        log.Printf("Warning: failed clearing aliases for %s: %v", module.Name, err)
+    }
+    for a, w := range aliasMap {
+        if err := s.db.InsertModuleAlias(moduleID, a, w, "derived"); err != nil {
+            log.Printf("Warning: failed inserting alias %s for %s: %v", a, module.Name, err)
+        }
+    }
+    return nil
 }
 
 func (s *Syncer) syncRepositoryFromArchive(moduleID int64, repo GitHubRepo) (bool, []int64, error) {
@@ -565,12 +715,18 @@ func shouldSkipPath(relativePath string) bool {
 		".terraform":   {},
 	}
 
-	segments := strings.Split(relativePath, "/")
-	for _, segment := range segments {
-		if _, skip := skipDirs[segment]; skip {
-			return true
-		}
-	}
+    // Scan path segments without allocating a slice
+    rest := relativePath
+    for {
+        seg, r, ok := strings.Cut(rest, "/")
+        if _, skip := skipDirs[seg]; skip {
+            return true
+        }
+        if !ok {
+            break
+        }
+        rest = r
+    }
 
 	return false
 }
@@ -712,9 +868,9 @@ func (s *Syncer) indexDataSources(moduleID int64, body *hclsyntax.Body, fileName
 func parseHCLBody(content string, filename string) (*hclsyntax.Body, error) {
 	parser := hclparse.NewParser()
 	file, diags := parser.ParseHCL([]byte(content), filename)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf(diags.Error())
-	}
+    if diags.HasErrors() {
+        return nil, fmt.Errorf("%s", diags.Error())
+    }
 
 	body, ok := file.Body.(*hclsyntax.Body)
 	if !ok {
@@ -1049,25 +1205,41 @@ func parseNextLink(linkHeader string) string {
 		return ""
 	}
 
-	for _, part := range strings.Split(linkHeader, ",") {
-		sections := strings.Split(strings.TrimSpace(part), ";")
-		if len(sections) < 2 {
-			continue
-		}
-
-		urlPart := strings.Trim(sections[0], " <>")
-		var rel string
-		for _, sec := range sections[1:] {
-			sec = strings.TrimSpace(sec)
-			if trimmed, ok := strings.CutPrefix(sec, "rel="); ok {
-				rel = strings.Trim(trimmed, "\"")
-			}
-		}
-
-		if rel == "next" {
-			return urlPart
-		}
-	}
+    rest := linkHeader
+    for {
+        part, r, ok := strings.Cut(rest, ",")
+        sections := strings.TrimSpace(part)
+        // split first url;params then iterate params with CutPrefix
+        urlPart, params, ok2 := strings.Cut(sections, ";")
+        if ok2 {
+            urlPart = strings.Trim(urlPart, " <>")
+            rel := ""
+            p := params
+            for {
+                p = strings.TrimSpace(p)
+                if p == "" {
+                    break
+                }
+                // each param is "; key=value" or "key=value; ..."
+                var item string
+                item, p, _ = strings.Cut(p, ",") // try to consume a param chunk
+                item = strings.TrimSpace(item)
+                if trimmed, ok := strings.CutPrefix(item, "rel="); ok {
+                    rel = strings.Trim(trimmed, "\"")
+                }
+                if p == "" {
+                    break
+                }
+            }
+            if rel == "next" {
+                return urlPart
+            }
+        }
+        if !ok {
+            break
+        }
+        rest = r
+    }
 
 	return ""
 }

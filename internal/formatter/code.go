@@ -108,36 +108,50 @@ func PatternComparison(pattern string, results []PatternMatch, showFullBlocks bo
 }
 
 type PatternMatch struct {
-	ModuleName string
-	FileName   string
-	Match      string
+    ModuleName string
+    FileName   string
+    Match      string
+    BlockType  string // optional: resource|dynamic|lifecycle
+    Summary    string // optional: attribute summary
 }
 
 func formatFullBlocks(results []PatternMatch) string {
-	var text strings.Builder
-	for _, result := range results {
-		text.WriteString(fmt.Sprintf("## %s (%s)\n\n", result.ModuleName, result.FileName))
-		text.WriteString("```hcl\n")
-		text.WriteString(result.Match)
-		text.WriteString("\n```\n\n")
-	}
-	return text.String()
+    var text strings.Builder
+    for _, result := range results {
+        header := fmt.Sprintf("## %s (%s)", result.ModuleName, result.FileName)
+        if result.BlockType != "" {
+            header += fmt.Sprintf(" — %s", result.BlockType)
+        }
+        text.WriteString(header + "\n\n")
+        if result.Summary != "" {
+            text.WriteString(result.Summary + "\n\n")
+        }
+        text.WriteString("```hcl\n")
+        text.WriteString(result.Match)
+        text.WriteString("\n```\n\n")
+    }
+    return text.String()
 }
 
 func formatCompactTable(results []PatternMatch) string {
 	var text strings.Builder
-	text.WriteString("| Module | File | Preview |\n")
-	text.WriteString("|--------|------|---------|\n")
-	for _, result := range results {
-		firstLine := strings.Split(result.Match, "\n")[0]
-		if len(firstLine) > 60 {
-			firstLine = firstLine[:60] + "..."
-		}
-		firstLine = strings.ReplaceAll(firstLine, "|", "\\|")
-		text.WriteString(fmt.Sprintf("| %s | %s | %s |\n", result.ModuleName, result.FileName, firstLine))
-	}
-	text.WriteString("\n**Tip:** Use `show_full_blocks: true` to see complete code blocks\n")
-	return text.String()
+    text.WriteString("| Module | File | Block | Preview |\n")
+    text.WriteString("|--------|------|-------|---------|\n")
+    for _, result := range results {
+        firstLine := strings.Split(result.Match, "\n")[0]
+        if len(firstLine) > 60 {
+            firstLine = firstLine[:60] + "..."
+        }
+        firstLine = strings.ReplaceAll(firstLine, "|", "\\|")
+        block := result.BlockType
+        if block == "" { block = "code" }
+        if result.Summary != "" {
+            firstLine = result.Summary + " — " + firstLine
+        }
+        text.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", result.ModuleName, result.FileName, block, firstLine))
+    }
+    text.WriteString("\n**Tip:** Use `show_full_blocks: true` to see complete code blocks\n")
+    return text.String()
 }
 
 func ExampleList(moduleName string, exampleMap map[string][]string) string {

@@ -18,7 +18,7 @@ Get detailed info on variables, outputs, resources, and examples in one response
 
 **Pattern Comparison**
 
-Compare code patterns (e.g., dynamic blocks, lifecycle, identity) across modules
+Compare code patterns (e.g., dynamic blocks, lifecycle, resource types) across modules. Uses HCL AST for tighter, block‑aware matches when patterns like `resource "..."`, `dynamic "..."`, or `lifecycle` are used; falls back to text search otherwise.
 
 **Example Access**
 
@@ -27,6 +27,10 @@ Retrieve usage examples per module, including example file contents
 **Variable Extraction**
 
 Extract complete variable definitions including types, defaults, and sensitivity
+
+**Short-name Aliases**
+
+Use short module names (e.g., `vnet`, `kv`, `pe`, `agw`) instead of full names (e.g., `terraform-azure-vnet`). Aliases are auto-generated from module names, submodules, and tags during sync and work with all tools that accept `module_name`.
 
 **GitHub Sync**
 
@@ -71,33 +75,67 @@ To use this MCP server with AI agents (Claude CLI, Copilot, Codex CLI, or other 
 
 make build
 
-## Example Queries
+## Example Prompts
 
 **Once configured, you can ask any agentic agent that supports additional MCP servers:**
 
-Search all network related modules.
+**Networking**
 
-Show module info for vnet and show required variables.
+Show all networking modules grouped by category (core networking, connectivity, name resolution, private access, security, ingress/egress, monitoring), including submodules.
 
-Show example usage for storage with private link.
+List modules related to vnet based on shared tags/resources, and include brief descriptions.
 
-Compare dynamic "identity" across all modules and show only the ones that are different in code.
+Regarding the previous question, how does evh relate to vnet?
 
-Search inside the vwan module for any resources that manage nat rules and show it.
+**Module Info**
 
-Search code for dynamic "delegation" in vnet and show it.
+Show module info for vnet and highlight only the required variables.
 
-Show module info for keyvault and list all resources.
+Show module info for kv and list all resources it creates.
 
-List all examples for automation account.
+**Examples**
 
-Search code for validation { in the private endpoint module.
+List all examples for terraform-azure-aa.
 
-Search code for for_each = merge(flatten and name the modules.
+List the examples for sa, then open the example that demonstrates a private endpoint (private link) and show all files.
 
-Sync modules.
+For terraform-azure-func, list examples and open the private-endpoint example in full code.
 
-Sync updates modules.
+**AST Pattern Compare (block‑aware)**
+
+Compare dynamic "identity" across modules and show one example per unique pattern, with full code.
+
+Compare resource "azurerm_private_endpoint" across all modules and show full resource blocks.
+
+Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_changes) with full code.
+
+In vnet, show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
+
+**Focused Code Queries**
+
+Search code for key vault/keyvault access_policy and show matching files and snippets.
+
+Find modules that use for_each = merge(flatten(...)) and list the module names and file paths.
+
+In vwan and vgw, show resource "azurerm_vpn_gateway_nat_rule" with full blocks.
+
+In vnet, show dynamic "delegation" with full blocks.
+
+**Sync and Maintenance**
+
+Run a full sync of all modules and report the job ID; then show the sync status for that job ID.
+
+Run an incremental sync (updates only) and report the job ID; then show the sync status for that job ID.
+
+**Tips**
+`
+For AST mode, include quotes around types/labels in the pattern:
+  resource "azurerm_...", dynamic "identity", lifecycle
+Add attribute filters with has: to narrow results:
+  resource "azurerm_" has:lifecycle.ignore_changes
+  dynamic "identity" has:identity_ids
+Use show_full_blocks: true when you want the exact HCL code, or leave it false for a compact table.
+`
 
 ## Notes
 

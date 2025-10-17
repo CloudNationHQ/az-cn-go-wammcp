@@ -138,5 +138,32 @@ END;
 CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON module_files BEGIN
     DELETE FROM files_fts WHERE rowid = old.id;
 END;
-`
 
+-- Tags per module (persisted categories)
+CREATE TABLE IF NOT EXISTS module_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    weight INTEGER DEFAULT 1,
+    source TEXT,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+    UNIQUE(module_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_module_tags_module_id ON module_tags(module_id);
+CREATE INDEX IF NOT EXISTS idx_module_tags_tag ON module_tags(tag);
+
+-- Auto-generated and user-defined aliases for modules
+CREATE TABLE IF NOT EXISTS module_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    alias TEXT NOT NULL,
+    weight INTEGER DEFAULT 1,
+    source TEXT,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+    UNIQUE(module_id, alias)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alias_alias ON module_aliases(alias);
+CREATE INDEX IF NOT EXISTS idx_alias_module_id ON module_aliases(module_id);
+`
