@@ -25,16 +25,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// wgGo is a tiny helper to spawn a goroutine tied to a WaitGroup.
-// It simplifies the common pattern wg.Add(1); go func(){ defer wg.Done(); ... }()
-func wgGo(wg *sync.WaitGroup, fn func()) {
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        fn()
-    }()
-}
-
 type Syncer struct {
 	db           *database.DB
 	githubClient *GitHubClient
@@ -275,7 +265,7 @@ func (s *Syncer) processRepoQueue(repos []GitHubRepo, progress *SyncProgress, on
 	var wg sync.WaitGroup
 
     for range workerCount {
-        wgGo(&wg, func() {
+        wg.Go(func() {
             for repo := range jobs {
                 handleRepo(repo)
             }
