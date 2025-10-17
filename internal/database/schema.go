@@ -88,6 +88,23 @@ CREATE INDEX IF NOT EXISTS idx_module_resources_type ON module_resources(resourc
 CREATE INDEX IF NOT EXISTS idx_module_data_sources_module_id ON module_data_sources(module_id);
 CREATE INDEX IF NOT EXISTS idx_module_examples_module_id ON module_examples(module_id);
 
+-- HCL block index for fast AST-based queries
+CREATE TABLE IF NOT EXISTS hcl_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    block_type TEXT NOT NULL, -- resource|dynamic|lifecycle
+    type_label TEXT,          -- e.g., azurerm_storage_account for resource, or label for dynamic
+    start_byte INTEGER NOT NULL,
+    end_byte INTEGER NOT NULL,
+    attr_paths TEXT,          -- newline-separated flattened attribute paths within this block (e.g., "for_each\nlifecycle.ignore_changes")
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hcl_blocks_module ON hcl_blocks(module_id);
+CREATE INDEX IF NOT EXISTS idx_hcl_blocks_type ON hcl_blocks(block_type);
+CREATE INDEX IF NOT EXISTS idx_hcl_blocks_label ON hcl_blocks(type_label);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS modules_fts USING fts5(
     name,
     description,

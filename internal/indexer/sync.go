@@ -812,17 +812,18 @@ func (s *Syncer) parseAndIndexTerraformFiles(moduleID int64) error {
 }
 
 func (s *Syncer) parseAndIndexTerraformFile(moduleID int64, file database.ModuleFile) error {
-	body, err := parseHCLBody(file.Content, file.FilePath)
-	if err != nil {
-		return err
-	}
+    body, err := parseHCLBody(file.Content, file.FilePath)
+    if err != nil {
+        return err
+    }
 
-	s.indexVariables(moduleID, body, file.Content)
-	s.indexOutputs(moduleID, body, file.Content)
-	s.indexResources(moduleID, body, file.FileName)
-	s.indexDataSources(moduleID, body, file.FileName)
+    s.indexVariables(moduleID, body, file.Content)
+    s.indexOutputs(moduleID, body, file.Content)
+    s.indexResources(moduleID, body, file.FileName)
+    s.indexDataSources(moduleID, body, file.FileName)
+    s.indexHCLBlocks(moduleID, file.FilePath, body)
 
-	return nil
+    return nil
 }
 
 func (s *Syncer) indexVariables(moduleID int64, body *hclsyntax.Body, content string) {
@@ -997,6 +998,61 @@ func attributeIsTrue(attr *hclsyntax.Attribute, content string) bool {
 
 	text := strings.TrimSpace(expressionText(content, attr.Expr.Range()))
 	return strings.EqualFold(text, "true")
+}
+
+func (s *Syncer) indexHCLBlocks(moduleID int64, filePath string, body *hclsyntax.Body) {
+    // Clear existing blocks for this module is handled at module clear; we only insert per file here.
+    var walk func(b *hclsyntax.Body)
+    walk = func(b *hclsyntax.Body) {
+        for _, bl := range b.Blocks {
+            blockType := bl.Type
+            if blockType == "resource" || blockType == "dynamic" || blockType == "lifecycle" {
+                typeLabel := ""
+                if blockType == "resource" && len(bl.Labels) >= 2 {
+                    typeLabel = bl.Labels[0]
+                } else if blockType == "dynamic" && len(bl.Labels) >= 1 {
+                    typeLabel = bl.Labels[0]
+                }
+                rng := bl.Range()
+                start := int(rng.Start.Byte)
+                end := int(rng.End.Byte)
+                // collect flattened attribute paths within this block
+                paths := collectAttrPaths(bl.Body, "")
+                attrPaths := strings.Join(paths, "\n")
+                if err := s.db.InsertHCLBlock(moduleID, filePath, blockType, typeLabel, start, end, attrPaths); err != nil {
+                    log.Printf("Warning: failed to insert hcl block %s in %s: %v", blockType, filePath, err)
+                }
+            }
+            if bl.Body != nil {
+                walk(bl.Body)
+            }
+        }
+    }
+    walk(body)
+}
+
+func collectAttrPaths(b *hclsyntax.Body, prefix string) []string {
+    var out []string
+    // attributes at this level
+    for k := range b.Attributes {
+        if prefix == "" {
+            out = append(out, k)
+        } else {
+            out = append(out, prefix+"."+k)
+        }
+    }
+    // nested blocks
+    for _, nb := range b.Blocks {
+        p := nb.Type
+        if prefix != "" {
+            p = prefix + "." + nb.Type
+        }
+        out = append(out, p)
+        if nb.Body != nil {
+            out = append(out, collectAttrPaths(nb.Body, p)...)
+        }
+    }
+    return out
 }
 
 func expressionText(content string, rng hcl.Range) string {
