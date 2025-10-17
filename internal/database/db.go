@@ -82,6 +82,22 @@ type ModuleExample struct {
 	Content  string
 }
 
+type ModuleAlias struct {
+    ID       int64
+    ModuleID int64
+    Alias    string
+    Weight   int
+    Source   sql.NullString
+}
+
+type ModuleTag struct {
+    ID        int64
+    ModuleID  int64
+    Tag       string
+    Weight    int
+    Source    sql.NullString
+}
+
 func New(dbPath string) (*DB, error) {
 	conn, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -473,10 +489,150 @@ func (db *DB) DeleteChildModules(parentName string) error {
 }
 
 func (db *DB) SetModuleHasExamples(moduleID int64, hasExamples bool) error {
-	_, err := db.conn.Exec(`
-		UPDATE modules
-		SET has_examples = ?
-		WHERE id = ?
-	`, hasExamples, moduleID)
-	return err
+    _, err := db.conn.Exec(`
+        UPDATE modules
+        SET has_examples = ?
+        WHERE id = ?
+    `, hasExamples, moduleID)
+    return err
+}
+
+// ClearModuleTags removes all persisted tags for the given module.
+func (db *DB) ClearModuleTags(moduleID int64) error {
+    _, err := db.conn.Exec(`DELETE FROM module_tags WHERE module_id = ?`, moduleID)
+    return err
+}
+
+func (db *DB) InsertModuleTag(moduleID int64, tag string, weight int, source string) error {
+    _, err := db.conn.Exec(`
+        INSERT INTO module_tags (module_id, tag, weight, source)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(module_id, tag) DO UPDATE SET
+            weight = excluded.weight,
+            source = COALESCE(excluded.source, source)
+    `, moduleID, strings.ToLower(tag), weight, source)
+    return err
+}
+
+func (db *DB) GetModuleTags(moduleID int64) ([]ModuleTag, error) {
+    rows, err := db.conn.Query(`
+        SELECT id, module_id, tag, weight, source
+        FROM module_tags WHERE module_id = ?
+        ORDER BY weight DESC, tag ASC
+    `, moduleID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var tags []ModuleTag
+    for rows.Next() {
+        var t ModuleTag
+        if err := rows.Scan(&t.ID, &t.ModuleID, &t.Tag, &t.Weight, &t.Source); err != nil {
+            return nil, err
+        }
+        tags = append(tags, t)
+    }
+    return tags, rows.Err()
+}
+
+// Alias management
+func (db *DB) ClearModuleAliases(moduleID int64) error {
+    _, err := db.conn.Exec(`DELETE FROM module_aliases WHERE module_id = ?`, moduleID)
+    return err
+}
+
+func (db *DB) InsertModuleAlias(moduleID int64, alias string, weight int, source string) error {
+    _, err := db.conn.Exec(`
+        INSERT INTO module_aliases (module_id, alias, weight, source)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(module_id, alias) DO UPDATE SET
+            weight = excluded.weight,
+            source = COALESCE(excluded.source, source)
+    `, moduleID, strings.ToLower(alias), weight, source)
+    return err
+}
+
+// ResolveModuleByAlias finds the best matching module for a given alias.
+// Preference: highest weight, top-level modules over submodules, name ASC.
+func (db *DB) ResolveModuleByAlias(alias string) (*Module, error) {
+    var m Module
+    err := db.conn.QueryRow(`
+        SELECT m.id, m.name, m.full_name, m.description, m.repo_url, m.last_updated, m.synced_at, m.readme_content, m.has_examples
+        FROM module_aliases a
+        JOIN modules m ON m.id = a.module_id
+        WHERE a.alias = ?
+        ORDER BY a.weight DESC,
+                 (CASE WHEN instr(m.name, '//') > 0 THEN 1 ELSE 0 END) ASC,
+                 m.name ASC
+        LIMIT 1
+    `, strings.ToLower(alias)).Scan(&m.ID, &m.Name, &m.FullName, &m.Description, &m.RepoURL, &m.LastUpdated, &m.SyncedAt, &m.ReadmeContent, &m.HasExamples)
+    if err != nil {
+        return nil, err
+    }
+    return &m, nil
+}
+
+// ResolveModuleByAliasPrefix attempts a prefix match on aliases when no exact alias is found.
+func (db *DB) ResolveModuleByAliasPrefix(prefix string) (*Module, error) {
+    like := strings.ToLower(prefix) + "%"
+    var m Module
+    err := db.conn.QueryRow(`
+        SELECT m.id, m.name, m.full_name, m.description, m.repo_url, m.last_updated, m.synced_at, m.readme_content, m.has_examples
+        FROM module_aliases a
+        JOIN modules m ON m.id = a.module_id
+        WHERE a.alias LIKE ?
+        GROUP BY m.id
+        ORDER BY MAX(a.weight) DESC,
+                 (CASE WHEN instr(m.name, '//') > 0 THEN 1 ELSE 0 END) ASC,
+                 m.name ASC
+        LIMIT 1
+    `, like).Scan(&m.ID, &m.Name, &m.FullName, &m.Description, &m.RepoURL, &m.LastUpdated, &m.SyncedAt, &m.ReadmeContent, &m.HasExamples)
+    if err != nil {
+        return nil, err
+    }
+    return &m, nil
+}
+
+// GetRelatedModules returns modules related by shared tags and resource types.
+// Tags are weighted higher than resource-type overlap for stronger semantic signal.
+func (db *DB) GetRelatedModules(moduleID int64, limit int) ([]Module, error) {
+    if limit <= 0 {
+        limit = 10
+    }
+    query := `
+        SELECT m.id, m.name, m.full_name, m.description, m.repo_url, m.last_updated, m.synced_at, m.readme_content, m.has_examples, SUM(score) as total_score
+        FROM (
+            SELECT other.module_id AS mid, 2 AS score
+            FROM module_tags mt
+            JOIN module_tags other ON other.tag = mt.tag AND other.module_id != mt.module_id
+            WHERE mt.module_id = ?
+            UNION ALL
+            SELECT other.module_id AS mid, 1 AS score
+            FROM module_resources r
+            JOIN module_resources other ON other.resource_type = r.resource_type AND other.module_id != r.module_id
+            WHERE r.module_id = ?
+        ) s
+        JOIN modules m ON m.id = s.mid
+        GROUP BY m.id
+        ORDER BY total_score DESC, m.name ASC
+        LIMIT ?
+    `
+
+    rows, err := db.conn.Query(query, moduleID, moduleID, limit)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var modules []Module
+    for rows.Next() {
+        var m Module
+        var total int
+        if err := rows.Scan(&m.ID, &m.Name, &m.FullName, &m.Description, &m.RepoURL, &m.LastUpdated, &m.SyncedAt, &m.ReadmeContent, &m.HasExamples, &total); err != nil {
+            return nil, err
+        }
+        modules = append(modules, m)
+    }
+    return modules, rows.Err()
 }
