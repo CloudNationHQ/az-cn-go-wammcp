@@ -131,9 +131,11 @@ Run an incremental sync (updates only) and report the job ID; then show the sync
 ```
 For AST mode, include quotes around types/labels in the pattern:
   resource "azurerm_...", dynamic "identity", lifecycle
+
 Add attribute filters with has: to narrow results:
   resource "azurerm_" has:lifecycle.ignore_changes
   dynamic "identity" has:identity_ids
+
 Use show_full_blocks: true when you want the exact HCL code, or leave it false for a compact table.
 ```
 
