@@ -85,7 +85,7 @@ Show all networking modules grouped by category (core networking, connectivity, 
 
 List modules related to vnet based on shared tags/resources, and include brief descriptions.
 
-Regarding the previous question, how does evh relate to vnet?
+How does vnet relates to terraform-azure-fw in the above list?
 
 `Module Info`
 
