@@ -18,7 +18,9 @@ Get detailed info on variables, outputs, resources, and examples in one response
 
 **Pattern Comparison**
 
-Compare code patterns (e.g., dynamic blocks, lifecycle, resource types) across modules. Uses HCL AST for tighter, block‑aware matches when patterns like `resource "..."`, `dynamic "..."`, or `lifecycle` are used; falls back to text search otherwise.
+Compare code patterns (e.g., dynamic blocks, lifecycle, resource types) across modules.
+
+Uses HCL AST for tighter, block‑aware matches when patterns like `resource "..."`, `dynamic "..."`, or `lifecycle` are used; falls back to text search otherwise.
 
 **Example Access**
 
@@ -30,11 +32,15 @@ Extract complete variable definitions including types, defaults, and sensitivity
 
 **Short-name Aliases**
 
-Use short module names (e.g., `vnet`, `kv`, `pe`, `agw`) instead of full names (e.g., `terraform-azure-vnet`). Aliases are auto-generated from module names, submodules, and tags during sync and work with all tools that accept `module_name`.
+Use short module names (e.g., `vnet`, `kv`, `pe`, `agw`) instead of full names (e.g., `terraform-azure-vnet`).
+
+Aliases are auto-generated from module names, submodules, and tags during sync and work with all tools that accept `module_name`.
 
 **GitHub Sync**
 
-Syncs and indexes modules from GitHub into a local SQLite database for fast queries. Supports incremental updates and parallel syncing with rate‑limit awareness for larger orgs.
+Syncs and indexes modules from GitHub into a local SQLite database for fast queries.
+
+Supports incremental updates and parallel syncing with rate‑limit awareness for larger orgs.
 
 ## Prerequisites
 
