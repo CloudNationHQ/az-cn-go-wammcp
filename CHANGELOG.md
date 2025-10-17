@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.3.0...v1.4.0) (2025-10-17)
+
+
+### Features
+
+* add AST-based compare, alias resolution, persisted tags + related-modules, query variants, modernized sync and updated documentation ([#20](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/20)) ([c1caba7](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/c1caba79a70c2c3ed2287118ec21e57a16124287))
+
 ## [1.3.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.2.0...v1.3.0) (2025-10-12)
 
 
