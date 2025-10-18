@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.5.0...v1.6.0) (2025-10-18)
+
+
+### Features
+
+* remove category implementation ([#24](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/24)) ([6260559](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/62605590d4f5ff7a3c6fcf868340c872bdc06a3e))
+
 ## [1.5.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.4.0...v1.5.0) (2025-10-17)
 
 
