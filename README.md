@@ -12,6 +12,16 @@ List and search all available Terraform modules with fast, FTS-backed lookups
 
 Search across all module code (any .tf file) for patterns, resources, or free text
 
+**Relationship Analysis**
+
+Reveal precise, AST‑aware relationships inside Terraform expressions.
+
+Shows the attribute path, the referenced symbol (variable, data source, module output, resource, loop), and an annotated snippet with file and line.
+
+It's module scoped or cross‑module queries (when no module is specified)
+
+It uses natural language prompts
+
 **Module Analysis**
 
 Get detailed info on variables, outputs, resources, and examples in one response
@@ -84,6 +94,20 @@ make build
 ## Example Prompts
 
 **Once configured, you can ask any agentic agent that supports additional MCP servers:**
+
+`Relationship Explorer`
+
+Show subnet interactions in redis and explain it.
+
+What relation has storage with log analytics workspace and show the flow and list it.
+
+Where do we reference subnet_id across modules, top 3
+
+Highlight private endpoint usage in terraform-azure-kv, top 5 hits
+
+Find role assignments that reference the kubelet identity in terraform-azure-aks and give some background information.
+
+Compare subnet_id relationships between redis and terraform-azure-app
 
 `Module Info`
 

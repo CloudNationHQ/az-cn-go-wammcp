@@ -5,13 +5,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/formatter"
@@ -39,6 +43,8 @@ type ToolCallParams struct {
 	Name      string `json:"name"`
 	Arguments any    `json:"arguments"`
 }
+
+var errModuleNotInPrompt = errors.New("module not found in prompt")
 
 type Server struct {
 	db        *database.DB
@@ -319,6 +325,31 @@ func (s *Server) handleToolsList(msg Message) {
 			},
 		},
 		{
+			"name":        "analyze_code_relationships",
+			"description": "Reveal how a term is referenced within a module by leveraging indexed Terraform relationships (variables, resources, data sources). Accepts structured arguments or a natural-language prompt like 'Show subnet usage in redis.'",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"module_name": map[string]any{
+						"type":        "string",
+						"description": "Name or alias of the module to inspect",
+					},
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Term to match against attribute paths or reference names (e.g., 'subnet')",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Optional: maximum number of relationships to return (default 20)",
+					},
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "Natural-language request (e.g., 'Show subnet relationships in redis, top 5').",
+					},
+				},
+			},
+		},
+		{
 			"name":        "list_module_examples",
 			"description": "List all available usage examples for a specific module",
 			"inputSchema": map[string]any{
@@ -410,6 +441,8 @@ func (s *Server) handleToolsCall(msg Message) {
 		result = s.handleExtractVariableDefinition(params.Arguments)
 	case "compare_pattern_across_modules":
 		result = s.handleComparePatternAcrossModules(params.Arguments)
+	case "analyze_code_relationships":
+		result = s.handleAnalyzeCodeRelationships(params.Arguments)
 	case "list_module_examples":
 		result = s.handleListModuleExamples(params.Arguments)
 	case "get_example_content":
@@ -786,6 +819,430 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 	)
 
 	return SuccessResponse(text)
+}
+
+func (s *Server) handleAnalyzeCodeRelationships(args any) map[string]any {
+	if err := s.ensureDB(); err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
+	}
+
+	moduleName, query, limit, prompt, err := parseRelationshipArgs(args)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Error: %v", err))
+	}
+
+	moduleName = strings.TrimSpace(moduleName)
+	query = strings.TrimSpace(query)
+	prompt = strings.TrimSpace(prompt)
+
+	var module *database.Module
+
+	if prompt != "" {
+		parsedModule, parsedQuery, parsedLimit, parseErr := s.interpretRelationshipPrompt(prompt)
+		if parseErr != nil {
+			return ErrorResponse(fmt.Sprintf("Could not interpret prompt: %v", parseErr))
+		}
+		if moduleName == "" && parsedModule != nil {
+			module = parsedModule
+		}
+		if query == "" {
+			query = parsedQuery
+		}
+		if limit == 0 && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	if module == nil && moduleName != "" {
+		module, err = s.resolveModule(moduleName)
+		if err != nil {
+			return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleName))
+		}
+	}
+
+	if query == "" {
+		return ErrorResponse("Error: query missing. Provide `query` or specify what you are looking for in the prompt.")
+	}
+
+	return s.runRelationshipQuery(module, query, limit)
+}
+
+func (s *Server) runRelationshipQuery(module *database.Module, query string, limit int) map[string]any {
+	if module != nil {
+		rels, err := s.db.QueryRelationships(module.ID, query, limit)
+		if err != nil {
+			return ErrorResponse(fmt.Sprintf("Failed to load relationships: %v", err))
+		}
+
+		if len(rels) == 0 {
+			return SuccessResponse(fmt.Sprintf("No relationships matching '%s' found in module '%s'.", query, module.Name))
+		}
+
+		files, err := s.db.GetModuleFiles(module.ID)
+		if err != nil {
+			return ErrorResponse(fmt.Sprintf("Failed to load module files: %v", err))
+		}
+
+		fileMap := make(map[string]database.ModuleFile, len(files))
+		for _, file := range files {
+			fileMap[file.FilePath] = file
+		}
+
+		text := formatter.RelationshipAnalysis(module.Name, query, rels, fileMap)
+		if limit > 0 && len(rels) == limit {
+			text += fmt.Sprintf("\n_Note: Showing the first %d matches. Increase `limit` to see more._\n", limit)
+		}
+
+		return SuccessResponse(text)
+	}
+
+	rels, err := s.db.QueryRelationshipsAny(query, limit)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Failed to load relationships: %v", err))
+	}
+
+	if len(rels) == 0 {
+		return SuccessResponse(fmt.Sprintf("No relationships matching '%s' found across modules.", query))
+	}
+
+	buckets := make(map[int64][]database.HCLRelationship)
+	for _, rel := range rels {
+		buckets[rel.ModuleID] = append(buckets[rel.ModuleID], rel)
+	}
+
+	views := make([]formatter.ModuleRelationshipView, 0, len(buckets))
+	for moduleID, items := range buckets {
+		mod, err := s.db.GetModuleByID(moduleID)
+		if err != nil {
+			log.Printf("Warning: failed to load module %d for relationships: %v", moduleID, err)
+			continue
+		}
+
+		files, err := s.db.GetModuleFiles(moduleID)
+		if err != nil {
+			log.Printf("Warning: failed to load files for module %s: %v", mod.Name, err)
+			continue
+		}
+
+		fileMap := make(map[string]database.ModuleFile, len(files))
+		for _, file := range files {
+			fileMap[file.FilePath] = file
+		}
+
+		views = append(views, formatter.ModuleRelationshipView{
+			ModuleName:    mod.Name,
+			Relationships: items,
+			Files:         fileMap,
+		})
+	}
+
+	if len(views) == 0 {
+		return SuccessResponse(fmt.Sprintf("No relationships matching '%s' found across modules.", query))
+	}
+
+	text := formatter.RelationshipAnalysisAcross(query, views)
+	if limit > 0 && len(rels) == limit {
+		text += fmt.Sprintf("\n_Note: Showing the first %d matches overall. Increase `limit` to see more._\n", limit)
+	}
+
+	return SuccessResponse(text)
+}
+
+func parseRelationshipArgs(raw any) (moduleName, query string, limit int, prompt string, err error) {
+	if raw == nil {
+		return "", "", 0, "", nil
+	}
+
+	switch v := raw.(type) {
+	case string:
+		return "", "", 0, v, nil
+	case map[string]any:
+		if val, ok := v["module_name"]; ok {
+			s, ok := val.(string)
+			if !ok {
+				return "", "", 0, "", fmt.Errorf("module_name must be a string")
+			}
+			moduleName = s
+		}
+		if val, ok := v["query"]; ok {
+			s, ok := val.(string)
+			if !ok {
+				return "", "", 0, "", fmt.Errorf("query must be a string")
+			}
+			query = s
+		}
+		if val, ok := v["prompt"]; ok {
+			s, ok := val.(string)
+			if !ok {
+				return "", "", 0, "", fmt.Errorf("prompt must be a string")
+			}
+			prompt = s
+		}
+		if val, ok := v["limit"]; ok {
+			switch t := val.(type) {
+			case float64:
+				limit = int(t)
+			case int:
+				limit = t
+			case json.Number:
+				n, err := t.Int64()
+				if err != nil {
+					return "", "", 0, "", fmt.Errorf("limit must be numeric")
+				}
+				limit = int(n)
+			case string:
+				if strings.TrimSpace(t) == "" {
+					limit = 0
+					break
+				}
+				n, err := strconv.Atoi(t)
+				if err != nil {
+					return "", "", 0, "", fmt.Errorf("limit must be numeric")
+				}
+				limit = n
+			default:
+				return "", "", 0, "", fmt.Errorf("limit must be numeric")
+			}
+		}
+		return
+	default:
+		// try JSON round-trip for other shapes (e.g., struct)
+		bytes, marshalErr := json.Marshal(raw)
+		if marshalErr != nil {
+			return "", "", 0, "", fmt.Errorf("unsupported parameter format")
+		}
+		var tmp struct {
+			ModuleName string `json:"module_name"`
+			Query      string `json:"query"`
+			Limit      int    `json:"limit"`
+			Prompt     string `json:"prompt"`
+		}
+		if err := json.Unmarshal(bytes, &tmp); err != nil {
+			return "", "", 0, "", fmt.Errorf("invalid parameters")
+		}
+		return tmp.ModuleName, tmp.Query, tmp.Limit, tmp.Prompt, nil
+	}
+}
+
+func (s *Server) interpretRelationshipPrompt(prompt string) (*database.Module, string, int, error) {
+	original := strings.TrimSpace(prompt)
+	if original == "" {
+		return nil, "", 0, fmt.Errorf("prompt is empty")
+	}
+
+	limit, cleaned := extractPromptLimit(original)
+	tokens := tokenizePrompt(cleaned)
+	if len(tokens) == 0 {
+		return nil, "", limit, fmt.Errorf("could not find useful words")
+	}
+
+	module, moduleIdx, err := s.findModuleFromTokens(tokens)
+	if err != nil && !errors.Is(err, errModuleNotInPrompt) {
+		return nil, "", limit, err
+	}
+
+	query := deriveQueryFromTokens(tokens, moduleIdx)
+	if query == "" {
+		return module, "", limit, fmt.Errorf("could not identify what to search for")
+	}
+
+	return module, query, limit, nil
+}
+
+func extractPromptLimit(prompt string) (int, string) {
+	limitRegex := regexp.MustCompile(`(?i)\b(?:top|first|limit)\s+(\d{1,3})\b`)
+	limit := 0
+	cleaned := limitRegex.ReplaceAllStringFunc(prompt, func(match string) string {
+		parts := limitRegex.FindStringSubmatch(match)
+		if len(parts) > 1 {
+			if parsed, err := strconv.Atoi(parts[1]); err == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+		return ""
+	})
+	return limit, cleaned
+}
+
+type promptToken struct {
+	Original string
+	Lower    string
+}
+
+func tokenizePrompt(input string) []promptToken {
+	splitFn := func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '/' || r == '_' || r == '-' {
+			return false
+		}
+		return true
+	}
+
+	raw := strings.FieldsFunc(input, splitFn)
+	tokens := make([]promptToken, 0, len(raw))
+	for _, part := range raw {
+		if part == "" {
+			continue
+		}
+		tokens = append(tokens, promptToken{Original: part, Lower: strings.ToLower(part)})
+	}
+	return tokens
+}
+
+func (s *Server) findModuleFromTokens(tokens []promptToken) (*database.Module, []int, error) {
+	if len(tokens) == 0 {
+		return nil, nil, fmt.Errorf("no tokens available")
+	}
+
+	maxWindow := min(3, len(tokens))
+
+	tried := make(map[string]struct{})
+
+	for window := maxWindow; window >= 1; window-- {
+		for start := len(tokens) - window; start >= 0; start-- {
+			segment := tokens[start : start+window]
+			forms := candidateModuleForms(segment)
+			for _, candidate := range forms {
+				if candidate == "" {
+					continue
+				}
+				if _, seen := tried[candidate]; seen {
+					continue
+				}
+				tried[candidate] = struct{}{}
+				module, err := s.resolveModule(candidate)
+				if err == nil {
+					indices := make([]int, window)
+					for i := 0; i < window; i++ {
+						indices[i] = start + i
+					}
+					return module, indices, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil, errModuleNotInPrompt
+}
+
+func candidateModuleForms(tokens []promptToken) []string {
+	parts := make([]string, len(tokens))
+	for i, t := range tokens {
+		parts[i] = t.Lower
+	}
+
+	set := make(map[string]struct{})
+	push := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			set[s] = struct{}{}
+		}
+	}
+
+	push(strings.Join(parts, " "))
+	if len(parts) > 1 {
+		push(strings.Join(parts, "-"))
+		push(strings.Join(parts, "_"))
+	}
+	push(strings.Join(parts, ""))
+
+	forms := make([]string, 0, len(set))
+	for key := range set {
+		forms = append(forms, key)
+	}
+	return forms
+}
+
+var relationshipStopwords = map[string]struct{}{
+	"show":          {},
+	"me":            {},
+	"please":        {},
+	"the":           {},
+	"a":             {},
+	"an":            {},
+	"module":        {},
+	"modules":       {},
+	"relationship":  {},
+	"relationships": {},
+	"in":            {},
+	"within":        {},
+	"inside":        {},
+	"for":           {},
+	"of":            {},
+	"on":            {},
+	"about":         {},
+	"across":        {},
+	"with":          {},
+	"to":            {},
+	"and":           {},
+	"all":           {},
+	"any":           {},
+	"find":          {},
+	"list":          {},
+	"see":           {},
+	"need":          {},
+	"want":          {},
+	"how":           {},
+	"do":            {},
+	"does":          {},
+	"display":       {},
+	"get":           {},
+	"showing":       {},
+	"tell":          {},
+	"explain":       {},
+	"look":          {},
+	"into":          {},
+	"where":         {},
+	"which":         {},
+	"top":           {},
+	"first":         {},
+	"limit":         {},
+	"results":       {},
+	"matches":       {},
+}
+
+func deriveQueryFromTokens(tokens []promptToken, moduleIdx []int) string {
+	indexSet := make(map[int]struct{}, len(moduleIdx))
+	for _, idx := range moduleIdx {
+		indexSet[idx] = struct{}{}
+	}
+
+	var focusTokens []promptToken
+	if len(moduleIdx) > 0 {
+		first := moduleIdx[0]
+		if first > 0 {
+			focusTokens = append(focusTokens, tokens[:first]...)
+		} else if last := moduleIdx[len(moduleIdx)-1]; last+1 < len(tokens) {
+			focusTokens = append(focusTokens, tokens[last+1:]...)
+		}
+	}
+
+	if len(focusTokens) == 0 {
+		for i, tok := range tokens {
+			if _, isModule := indexSet[i]; isModule {
+				continue
+			}
+			focusTokens = append(focusTokens, tok)
+		}
+	}
+
+	var filtered []string
+	for _, tok := range focusTokens {
+		if _, stop := relationshipStopwords[tok.Lower]; stop {
+			continue
+		}
+		if _, err := strconv.Atoi(tok.Lower); err == nil {
+			continue
+		}
+		filtered = append(filtered, tok.Original)
+	}
+
+	if len(filtered) == 0 {
+		for _, tok := range focusTokens {
+			filtered = append(filtered, tok.Original)
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(filtered, " "))
 }
 
 func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType string) []formatter.PatternMatch {

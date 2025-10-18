@@ -105,6 +105,26 @@ CREATE INDEX IF NOT EXISTS idx_hcl_blocks_module ON hcl_blocks(module_id);
 CREATE INDEX IF NOT EXISTS idx_hcl_blocks_type ON hcl_blocks(block_type);
 CREATE INDEX IF NOT EXISTS idx_hcl_blocks_label ON hcl_blocks(type_label);
 
+CREATE TABLE IF NOT EXISTS hcl_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    block_type TEXT NOT NULL,
+    block_labels TEXT,
+    attribute_path TEXT NOT NULL,
+    reference_type TEXT NOT NULL,
+    reference_name TEXT NOT NULL,
+    start_byte INTEGER NOT NULL,
+    end_byte INTEGER NOT NULL,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hcl_relationships_module ON hcl_relationships(module_id);
+CREATE INDEX IF NOT EXISTS idx_hcl_relationships_ref ON hcl_relationships(module_id, reference_name);
+CREATE INDEX IF NOT EXISTS idx_hcl_relationships_attr ON hcl_relationships(module_id, attribute_path);
+CREATE INDEX IF NOT EXISTS idx_hcl_relationships_ref_only ON hcl_relationships(reference_name);
+CREATE INDEX IF NOT EXISTS idx_hcl_relationships_attr_only ON hcl_relationships(attribute_path);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS modules_fts USING fts5(
     name,
     description,

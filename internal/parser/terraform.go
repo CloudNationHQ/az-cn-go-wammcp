@@ -58,7 +58,6 @@ func (p *TerraformParser) ParseModule(modulePath string) (*terraform.Module, err
 
 		return p.parseFile(path, module)
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse module %s: %w", modulePath, err)
 	}
@@ -474,8 +473,7 @@ func (p *TerraformParser) extractDirectCategories(module *terraform.Module) []st
 		}
 	}
 
-	nameParts := strings.Split(strings.ToLower(module.Name), "-")
-	for _, part := range nameParts {
+	for part := range strings.SplitSeq(strings.ToLower(module.Name), "-") {
 		if len(part) > 3 && part != "terraform" && part != "azure" {
 			categoryMap[part] = true
 		}
@@ -492,8 +490,7 @@ func (p *TerraformParser) extractDirectCategories(module *terraform.Module) []st
 func (cl *CategoryLearner) deriveClusterCategory(resources []string) string {
 	wordCount := make(map[string]int)
 	for _, rt := range resources {
-		parts := strings.Split(rt, "_")
-		for _, part := range parts {
+		for part := range strings.SplitSeq(rt, "_") {
 			if len(part) > 3 && part != "azurerm" {
 				wordCount[part]++
 			}
@@ -525,8 +522,7 @@ func (cl *CategoryLearner) deriveResourceCategory(resourceType string) string {
 }
 
 func extractCategoryHint(moduleName string) string {
-	parts := strings.Split(strings.ToLower(moduleName), "-")
-	for _, part := range parts {
+	for part := range strings.SplitSeq(strings.ToLower(moduleName), "-") {
 		if len(part) > 3 && part != "terraform" && part != "azure" {
 			return part
 		}
