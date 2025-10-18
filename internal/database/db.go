@@ -109,6 +109,19 @@ type HCLBlock struct {
 	AttrPaths sql.NullString
 }
 
+type HCLRelationship struct {
+	ID            int64
+	ModuleID      int64
+	FilePath      string
+	BlockType     string
+	BlockLabels   string
+	AttributePath string
+	ReferenceType string
+	ReferenceName string
+	StartByte     int64
+	EndByte       int64
+}
+
 func New(dbPath string) (*DB, error) {
 	conn, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -500,6 +513,7 @@ func (db *DB) ClearModuleData(moduleID int64) error {
 		"module_data_sources",
 		"module_examples",
 		"hcl_blocks",
+		"hcl_relationships",
 	}
 
 	for _, table := range tables {
@@ -585,6 +599,143 @@ func (db *DB) QueryHCLBlocks(blockType, typeLabel string, prefix bool) ([]HCLBlo
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+func (db *DB) InsertRelationship(r *HCLRelationship) error {
+	_, err := db.conn.Exec(`
+        INSERT INTO hcl_relationships (
+            module_id,
+            file_path,
+            block_type,
+            block_labels,
+            attribute_path,
+            reference_type,
+            reference_name,
+            start_byte,
+            end_byte
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, r.ModuleID, r.FilePath, r.BlockType, nullIfEmpty(r.BlockLabels), r.AttributePath, r.ReferenceType, r.ReferenceName, r.StartByte, r.EndByte)
+	return err
+}
+
+func (db *DB) QueryRelationships(moduleID int64, term string, limit int) ([]HCLRelationship, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	likeTerm := "%" + strings.ToLower(term) + "%"
+
+	rows, err := db.conn.Query(`
+        SELECT
+            id,
+            module_id,
+            file_path,
+            block_type,
+            block_labels,
+            attribute_path,
+            reference_type,
+            reference_name,
+            start_byte,
+            end_byte
+        FROM hcl_relationships
+        WHERE module_id = ?
+          AND (
+                LOWER(attribute_path) LIKE ?
+             OR LOWER(reference_name) LIKE ?
+             OR LOWER(IFNULL(block_labels, '')) LIKE ?
+             OR LOWER(block_type) LIKE ?
+          )
+        ORDER BY file_path, start_byte
+        LIMIT ?
+    `, moduleID, likeTerm, likeTerm, likeTerm, likeTerm, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []HCLRelationship
+	for rows.Next() {
+		var rel HCLRelationship
+		var blockLabels sql.NullString
+		if err := rows.Scan(
+			&rel.ID,
+			&rel.ModuleID,
+			&rel.FilePath,
+			&rel.BlockType,
+			&blockLabels,
+			&rel.AttributePath,
+			&rel.ReferenceType,
+			&rel.ReferenceName,
+			&rel.StartByte,
+			&rel.EndByte,
+		); err != nil {
+			return nil, err
+		}
+		if blockLabels.Valid {
+			rel.BlockLabels = blockLabels.String
+		}
+		results = append(results, rel)
+	}
+
+	return results, rows.Err()
+}
+
+func (db *DB) QueryRelationshipsAny(term string, limit int) ([]HCLRelationship, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	likeTerm := "%" + strings.ToLower(term) + "%"
+
+	rows, err := db.conn.Query(`
+	        SELECT
+	            id,
+	            module_id,
+	            file_path,
+	            block_type,
+	            block_labels,
+	            attribute_path,
+	            reference_type,
+	            reference_name,
+	            start_byte,
+	            end_byte
+	        FROM hcl_relationships
+	        WHERE
+	              LOWER(attribute_path) LIKE ?
+	           OR LOWER(reference_name) LIKE ?
+	        ORDER BY module_id, file_path, start_byte
+	        LIMIT ?
+	    `, likeTerm, likeTerm, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []HCLRelationship
+	for rows.Next() {
+		var rel HCLRelationship
+		var blockLabels sql.NullString
+		if err := rows.Scan(
+			&rel.ID,
+			&rel.ModuleID,
+			&rel.FilePath,
+			&rel.BlockType,
+			&blockLabels,
+			&rel.AttributePath,
+			&rel.ReferenceType,
+			&rel.ReferenceName,
+			&rel.StartByte,
+			&rel.EndByte,
+		); err != nil {
+			return nil, err
+		}
+		if blockLabels.Valid {
+			rel.BlockLabels = blockLabels.String
+		}
+		results = append(results, rel)
+	}
+
+	return results, rows.Err()
 }
 
 func nullIfEmpty(s string) any {
@@ -681,7 +832,6 @@ func (db *DB) SummarizeModuleStructure(moduleID int64) (*ModuleStructureSummary,
 	return sum, nil
 }
 
-
 func (db *DB) GetModuleDynamicLabels(moduleID int64) ([]string, error) {
 	rows, err := db.conn.Query(`
         SELECT DISTINCT type_label FROM hcl_blocks WHERE module_id = ? AND block_type = 'dynamic' AND type_label IS NOT NULL
@@ -706,7 +856,6 @@ func (db *DB) CountResourceBlocks(moduleID int64) (int, error) {
 	err := db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource'`, moduleID).Scan(&total)
 	return total, err
 }
-
 
 func (db *DB) GetModuleResourceTypes(moduleID int64) ([]string, error) {
 	rows, err := db.conn.Query(`

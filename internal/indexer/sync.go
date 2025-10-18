@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -839,6 +840,7 @@ func (s *Syncer) parseAndIndexTerraformFile(moduleID int64, file database.Module
 	s.indexResources(moduleID, body, file.FileName)
 	s.indexDataSources(moduleID, body, file.FileName)
 	s.indexHCLBlocks(moduleID, file.FilePath, body)
+	s.indexRelationships(moduleID, file.FilePath, body)
 
 	return nil
 }
@@ -1071,6 +1073,143 @@ func collectAttrPaths(b *hclsyntax.Body, prefix string) []string {
 		}
 	}
 	return out
+}
+
+func (s *Syncer) indexRelationships(moduleID int64, filePath string, body *hclsyntax.Body) {
+	for _, block := range body.Blocks {
+		rels := collectRelationships(moduleID, filePath, block)
+		for _, rel := range rels {
+			if err := s.db.InsertRelationship(&rel); err != nil {
+				log.Printf("Warning: failed to insert relationship for %s: %v", filePath, err)
+			}
+		}
+	}
+}
+
+func collectRelationships(moduleID int64, filePath string, block *hclsyntax.Block) []database.HCLRelationship {
+	if block.Body == nil {
+		return nil
+	}
+
+	blockLabels := strings.Join(block.Labels, ".")
+	var results []database.HCLRelationship
+
+	var walk func(prefix string, body *hclsyntax.Body)
+	walk = func(prefix string, body *hclsyntax.Body) {
+		if body == nil {
+			return
+		}
+
+		for name, attr := range body.Attributes {
+			attrPath := joinAttributePath(prefix, name)
+			traversals := attr.Expr.Variables()
+			if len(traversals) == 0 {
+				continue
+			}
+
+			seen := make(map[string]struct{})
+			for _, traversal := range traversals {
+				refType, refName := classifyTraversal(traversal)
+				if refType == "" || refName == "" {
+					continue
+				}
+				if _, exists := seen[refName]; exists {
+					continue
+				}
+				seen[refName] = struct{}{}
+
+				rng := attr.Expr.Range()
+				results = append(results, database.HCLRelationship{
+					ModuleID:      moduleID,
+					FilePath:      filePath,
+					BlockType:     block.Type,
+					BlockLabels:   blockLabels,
+					AttributePath: attrPath,
+					ReferenceType: refType,
+					ReferenceName: refName,
+					StartByte:     int64(rng.Start.Byte),
+					EndByte:       int64(rng.End.Byte),
+				})
+			}
+		}
+
+		for _, child := range body.Blocks {
+			segment := child.Type
+			if len(child.Labels) > 0 {
+				segment = joinAttributePath(segment, strings.Join(child.Labels, "."))
+			}
+			walk(joinAttributePath(prefix, segment), child.Body)
+		}
+	}
+
+	walk("", block.Body)
+	return results
+}
+
+func joinAttributePath(prefix, name string) string {
+	if prefix == "" {
+		return name
+	}
+	if name == "" {
+		return prefix
+	}
+	return prefix + "." + name
+}
+
+func classifyTraversal(traversal hcl.Traversal) (string, string) {
+	if len(traversal) == 0 {
+		return "", ""
+	}
+
+	root, ok := traversal[0].(hcl.TraverseRoot)
+	if !ok {
+		return "", ""
+	}
+
+	rootName := root.Name
+	refName := traversalToString(traversal)
+	if refName == "" {
+		return "", ""
+	}
+
+	switch rootName {
+	case "var":
+		return "variable", refName
+	case "local":
+		return "local", refName
+	case "module":
+		return "module_output", refName
+	case "data":
+		return "data_source", refName
+	case "path":
+		return "path", refName
+	case "terraform":
+		return "terraform", refName
+	case "each":
+		return "loop", refName
+	case "self":
+		return "self", refName
+	case "count":
+		return "count", refName
+	default:
+		if strings.Contains(rootName, "_") {
+			return "resource", refName
+		}
+		return "reference", refName
+	}
+}
+
+func traversalToString(traversal hcl.Traversal) string {
+	tokens := hclwrite.TokensForTraversal(traversal)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, tok := range tokens {
+		b.Write(tok.Bytes)
+	}
+	return b.String()
 }
 
 func expressionText(content string, rng hcl.Range) string {
