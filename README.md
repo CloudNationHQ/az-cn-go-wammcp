@@ -85,14 +85,6 @@ make build
 
 **Once configured, you can ask any agentic agent that supports additional MCP servers:**
 
-`Networking`
-
-Show all networking modules grouped by category (core networking, connectivity, name resolution, private access, security, ingress/egress, monitoring), including submodules.
-
-List modules related to vnet based on shared tags/resources, and include brief descriptions.
-
-How does vnet relates to terraform-azure-fw in the above list?
-
 `Module Info`
 
 Show module info for vnet and highlight only the required variables.
@@ -111,9 +103,7 @@ For terraform-azure-func, list examples and open the private-endpoint example in
 
 Compare dynamic "identity" across modules and show one example per unique pattern, with full code.
 
-Compare resource "azurerm_private_endpoint" across all modules and show full resource blocks.
-
-Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_changes) with full code.
+Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_changes) and summarize the modules.
 
 In vnet, show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
 

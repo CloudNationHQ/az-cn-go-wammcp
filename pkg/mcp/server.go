@@ -17,8 +17,8 @@ import (
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/formatter"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/indexer"
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/util"
-    "github.com/hashicorp/hcl/v2/hclparse"
-    "github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 type Message struct {
@@ -164,7 +164,7 @@ func (s *Server) handleInitialize(msg Message) {
 }
 
 func (s *Server) handleToolsList(msg Message) {
-    tools := []map[string]any{
+	tools := []map[string]any{
 		{
 			"name":        "sync_modules",
 			"description": "Sync all Terraform modules from GitHub to local database",
@@ -221,37 +221,37 @@ func (s *Server) handleToolsList(msg Message) {
 				"required": []string{"module_name"},
 			},
 		},
-        {
-            "name":        "search_code",
-            "description": "Search across all Terraform code files for specific patterns or text",
-            "inputSchema": map[string]any{
-                "type": "object",
-                "properties": map[string]any{
-                    "query": map[string]any{
-                        "type":        "string",
-                        "description": "Text or pattern to search for in code",
-                    },
-                    "limit": map[string]any{
-                        "type":        "number",
-                        "description": "Maximum number of results (default: 20)",
-                    },
-                    "kind": map[string]any{
-                        "type":        "string",
-                        "description": "Optional structural filter: resource|dynamic|lifecycle",
-                    },
-                    "type_prefix": map[string]any{
-                        "type":        "string",
-                        "description": "Optional resource type prefix (e.g., azurerm_storage_account)",
-                    },
-                    "has": map[string]any{
-                        "type":        "array",
-                        "items": map[string]any{"type": "string"},
-                        "description": "Optional attribute presence filters (e.g., for_each, lifecycle.ignore_changes)",
-                    },
-                },
-                "required": []string{"query"},
-            },
-        },
+		{
+			"name":        "search_code",
+			"description": "Search across all Terraform code files for specific patterns or text",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Text or pattern to search for in code",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Maximum number of results (default: 20)",
+					},
+					"kind": map[string]any{
+						"type":        "string",
+						"description": "Optional structural filter: resource|dynamic|lifecycle",
+					},
+					"type_prefix": map[string]any{
+						"type":        "string",
+						"description": "Optional resource type prefix (e.g., azurerm_storage_account)",
+					},
+					"has": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Optional attribute presence filters (e.g., for_each, lifecycle.ignore_changes)",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 		{
 			"name":        "get_file_content",
 			"description": "Get the full content of a specific file from a module (e.g., variables.tf, main.tf, outputs.tf)",
@@ -288,8 +288,8 @@ func (s *Server) handleToolsList(msg Message) {
 				"required": []string{"module_name", "variable_name"},
 			},
 		},
-        {
-            "name":        "compare_pattern_across_modules",
+		{
+			"name":        "compare_pattern_across_modules",
 			"description": "Compare a specific code pattern (e.g., dynamic blocks, resource definitions) across all modules to find differences. Returns a summary table by default, or full code blocks if requested.",
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -317,28 +317,10 @@ func (s *Server) handleToolsList(msg Message) {
 				},
 				"required": []string{"pattern"},
 			},
-        },
-        {
-            "name":        "list_related_modules",
-            "description": "List modules related to a given module by shared tags/resources",
-            "inputSchema": map[string]any{
-                "type": "object",
-                "properties": map[string]any{
-                    "module_name": map[string]any{
-                        "type":        "string",
-                        "description": "Name of the module",
-                    },
-                    "limit": map[string]any{
-                        "type":        "number",
-                        "description": "Maximum number of related modules to return (default: 10)",
-                    },
-                },
-                "required": []string{"module_name"},
-            },
-        },
-        {
-            "name":        "list_module_examples",
-            "description": "List all available usage examples for a specific module",
+		},
+		{
+			"name":        "list_module_examples",
+			"description": "List all available usage examples for a specific module",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -409,7 +391,7 @@ func (s *Server) handleToolsCall(msg Message) {
 	log.Printf("Tool call: %s", params.Name)
 
 	var result any
-    switch params.Name {
+	switch params.Name {
 	case "sync_modules":
 		result = s.handleSyncModules()
 	case "sync_updates_modules":
@@ -420,12 +402,10 @@ func (s *Server) handleToolsCall(msg Message) {
 		result = s.handleSearchModules(params.Arguments)
 	case "get_module_info":
 		result = s.handleGetModuleInfo(params.Arguments)
-    case "search_code":
-        result = s.handleSearchCode(params.Arguments)
-    case "list_related_modules":
-        result = s.handleListRelatedModules(params.Arguments)
-    case "get_file_content":
-        result = s.handleGetFileContent(params.Arguments)
+	case "search_code":
+		result = s.handleSearchCode(params.Arguments)
+	case "get_file_content":
+		result = s.handleGetFileContent(params.Arguments)
 	case "extract_variable_definition":
 		result = s.handleExtractVariableDefinition(params.Arguments)
 	case "compare_pattern_across_modules":
@@ -550,31 +530,31 @@ func (s *Server) handleSearchModules(args any) map[string]any {
 		searchArgs.Limit = 10
 	}
 
-    variants := util.ExpandQueryVariants(searchArgs.Query)
-    seen := make(map[int64]struct{})
-    var merged []database.Module
-    for _, v := range variants {
-        mods, err := s.db.SearchModules(v, searchArgs.Limit)
-        if err != nil {
-            continue
-        }
-        for _, m := range mods {
-            if _, ok := seen[m.ID]; ok {
-                continue
-            }
-            seen[m.ID] = struct{}{}
-            merged = append(merged, m)
-            if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
-                break
-            }
-        }
-        if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
-            break
-        }
-    }
+	variants := util.ExpandQueryVariants(searchArgs.Query)
+	seen := make(map[int64]struct{})
+	var merged []database.Module
+	for _, v := range variants {
+		mods, err := s.db.SearchModules(v, searchArgs.Limit)
+		if err != nil {
+			continue
+		}
+		for _, m := range mods {
+			if _, ok := seen[m.ID]; ok {
+				continue
+			}
+			seen[m.ID] = struct{}{}
+			merged = append(merged, m)
+			if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
+				break
+			}
+		}
+		if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
+			break
+		}
+	}
 
-    text := formatter.SearchResults(searchArgs.Query, merged)
-    return SuccessResponse(text)
+	text := formatter.SearchResults(searchArgs.Query, merged)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleGetModuleInfo(args any) map[string]any {
@@ -589,23 +569,23 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 		return ErrorResponse("Error: Invalid module name")
 	}
 
-    module, err := s.resolveModule(moduleArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
-    }
+	module, err := s.resolveModule(moduleArgs.ModuleName)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
+	}
 
 	variables, _ := s.db.GetModuleVariables(module.ID)
 	outputs, _ := s.db.GetModuleOutputs(module.ID)
 	resources, _ := s.db.GetModuleResources(module.ID)
 	files, _ := s.db.GetModuleFiles(module.ID)
 
-    // structural summary via AST index
-    summary, _ := s.db.SummarizeModuleStructure(module.ID)
-    text := formatter.ModuleInfo(module, variables, outputs, resources, files)
-    if summary != nil {
-        text += formatter.StructuralSummaryValues(summary.ResourceCount, summary.LifecycleCount, summary.ResourcesWithIgnoreChanges, summary.TopResourceTypes, summary.DynamicLabels)
-    }
-    return SuccessResponse(text)
+	// structural summary via AST index
+	summary, _ := s.db.SummarizeModuleStructure(module.ID)
+	text := formatter.ModuleInfo(module, variables, outputs, resources, files)
+	if summary != nil {
+		text += formatter.StructuralSummaryValues(summary.ResourceCount, summary.LifecycleCount, summary.ResourcesWithIgnoreChanges, summary.TopResourceTypes, summary.DynamicLabels)
+	}
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleSearchCode(args any) map[string]any {
@@ -613,13 +593,13 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 		return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
 	}
 
-    searchArgs, err := UnmarshalArgs[struct {
-        Query      string   `json:"query"`
-        Limit      int      `json:"limit"`
-        Kind       string   `json:"kind"`
-        TypePrefix string   `json:"type_prefix"`
-        Has        []string `json:"has"`
-    }](args)
+	searchArgs, err := UnmarshalArgs[struct {
+		Query      string   `json:"query"`
+		Limit      int      `json:"limit"`
+		Kind       string   `json:"kind"`
+		TypePrefix string   `json:"type_prefix"`
+		Has        []string `json:"has"`
+	}](args)
 	if err != nil {
 		return ErrorResponse("Error: Invalid search query")
 	}
@@ -628,39 +608,46 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 		searchArgs.Limit = 20
 	}
 
-    variants := util.ExpandQueryVariants(searchArgs.Query)
-    seen := make(map[int64]struct{})
-    var merged []database.ModuleFile
-    for _, v := range variants {
-        files, err := s.db.SearchFiles(v, searchArgs.Limit)
-        if err != nil {
-            continue
-        }
-        for _, f := range files {
-            if _, ok := seen[f.ID]; ok {
-                continue
-            }
-            // Apply optional structural filters using the AST index
-            if searchArgs.Kind != "" || searchArgs.TypePrefix != "" || len(searchArgs.Has) > 0 {
-                mod, merr := s.db.GetModuleByID(f.ModuleID)
-                if merr != nil {
-                    continue
-                }
-                okStruct, herr := s.db.HCLBlockExists(mod.ID, f.FilePath, searchArgs.Kind, searchArgs.TypePrefix, searchArgs.Has)
-                if herr != nil || !okStruct {
-                    continue
-                }
-            }
-            seen[f.ID] = struct{}{}
-            merged = append(merged, f)
-            if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
-                break
-            }
-        }
-        if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
-            break
-        }
-    }
+	variants := util.ExpandQueryVariants(searchArgs.Query)
+	if len(variants) == 0 {
+		variants = []string{searchArgs.Query}
+	}
+
+	seen := make(map[int64]struct{})
+	var merged []database.ModuleFile
+	var files []database.ModuleFile
+	if len(variants) == 1 {
+		files, _ = s.db.SearchFiles(variants[0], searchArgs.Limit)
+	} else {
+		parts := make([]string, 0, len(variants))
+		for _, v := range variants {
+			escaped := strings.ReplaceAll(v, "\"", "\"\"")
+			parts = append(parts, fmt.Sprintf("\"%s\"", escaped))
+		}
+		match := strings.Join(parts, " OR ")
+		files, _ = s.db.SearchFilesFTS(match, searchArgs.Limit)
+	}
+
+	for _, f := range files {
+		if _, ok := seen[f.ID]; ok {
+			continue
+		}
+		if searchArgs.Kind != "" || searchArgs.TypePrefix != "" || len(searchArgs.Has) > 0 {
+			mod, merr := s.db.GetModuleByID(f.ModuleID)
+			if merr != nil {
+				continue
+			}
+			okStruct, herr := s.db.HCLBlockExists(mod.ID, f.FilePath, searchArgs.Kind, searchArgs.TypePrefix, searchArgs.Has)
+			if herr != nil || !okStruct {
+				continue
+			}
+		}
+		seen[f.ID] = struct{}{}
+		merged = append(merged, f)
+		if searchArgs.Limit > 0 && len(merged) >= searchArgs.Limit {
+			break
+		}
+	}
 
 	getModuleName := func(moduleID int64) string {
 		module, err := s.db.GetModuleByID(moduleID)
@@ -670,35 +657,8 @@ func (s *Server) handleSearchCode(args any) map[string]any {
 		return "unknown"
 	}
 
-    text := formatter.CodeSearchResults(searchArgs.Query, merged, getModuleName)
-    return SuccessResponse(text)
-}
-
-func (s *Server) handleListRelatedModules(args any) map[string]any {
-    if err := s.ensureDB(); err != nil {
-        return ErrorResponse(fmt.Sprintf("Failed to initialize database: %v", err))
-    }
-
-    relArgs, err := UnmarshalArgs[struct {
-        ModuleName string `json:"module_name"`
-        Limit      int    `json:"limit"`
-    }](args)
-    if err != nil {
-        return ErrorResponse("Error: Invalid parameters")
-    }
-
-    module, err := s.resolveModule(relArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", relArgs.ModuleName))
-    }
-
-    related, err := s.db.GetRelatedModules(module.ID, relArgs.Limit)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Error computing related modules: %v", err))
-    }
-
-    text := formatter.RelatedModules(module.Name, related)
-    return SuccessResponse(text)
+	text := formatter.CodeSearchResults(searchArgs.Query, merged, getModuleName)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleGetFileContent(args any) map[string]any {
@@ -714,17 +674,17 @@ func (s *Server) handleGetFileContent(args any) map[string]any {
 		return ErrorResponse("Error: Invalid parameters")
 	}
 
-    module, err := s.resolveModule(fileArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", fileArgs.ModuleName))
-    }
-    file, err := s.db.GetFile(module.Name, fileArgs.FilePath)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("File '%s' not found in module '%s'", fileArgs.FilePath, module.Name))
-    }
+	module, err := s.resolveModule(fileArgs.ModuleName)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", fileArgs.ModuleName))
+	}
+	file, err := s.db.GetFile(module.Name, fileArgs.FilePath)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("File '%s' not found in module '%s'", fileArgs.FilePath, module.Name))
+	}
 
-    text := formatter.FileContent(module.Name, file.FilePath, file.FileType, file.SizeBytes, file.Content)
-    return SuccessResponse(text)
+	text := formatter.FileContent(module.Name, file.FilePath, file.FileType, file.SizeBytes, file.Content)
+	return SuccessResponse(text)
 }
 
 func (s *Server) handleExtractVariableDefinition(args any) map[string]any {
@@ -740,22 +700,22 @@ func (s *Server) handleExtractVariableDefinition(args any) map[string]any {
 		return ErrorResponse("Error: Invalid parameters")
 	}
 
-    module, err := s.resolveModule(varArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", varArgs.ModuleName))
-    }
-    file, err := s.db.GetFile(module.Name, "variables.tf")
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("variables.tf not found in module '%s'", module.Name))
-    }
+	module, err := s.resolveModule(varArgs.ModuleName)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", varArgs.ModuleName))
+	}
+	file, err := s.db.GetFile(module.Name, "variables.tf")
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("variables.tf not found in module '%s'", module.Name))
+	}
 
 	variableBlock := extractVariableBlock(file.Content, varArgs.VariableName)
 	if variableBlock == "" {
 		return ErrorResponse(fmt.Sprintf("Variable '%s' not found in %s", varArgs.VariableName, varArgs.ModuleName))
 	}
 
-    text := formatter.VariableDefinition(module.Name, varArgs.VariableName, variableBlock)
-    return SuccessResponse(text)
+	text := formatter.VariableDefinition(module.Name, varArgs.VariableName, variableBlock)
+	return SuccessResponse(text)
 }
 
 func extractVariableBlock(content, variableName string) string {
@@ -829,329 +789,341 @@ func (s *Server) handleComparePatternAcrossModules(args any) map[string]any {
 }
 
 func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType string) []formatter.PatternMatch {
-    var results []formatter.PatternMatch
+	var results []formatter.PatternMatch
 
-    // First try the indexed AST block search for supported patterns
-    indexed := s.findPatternMatchesIndexed(pattern, fileType)
-    if len(indexed) > 0 {
-        return indexed
-    }
+	// First try the indexed AST block search for supported patterns
+	indexed := s.findPatternMatchesIndexed(pattern, fileType)
+	if len(indexed) > 0 {
+		return indexed
+	}
 
-    for _, module := range modules {
-        files, err := s.db.GetModuleFiles(module.ID)
-        if err != nil {
-            continue
-        }
+	for _, module := range modules {
+		files, err := s.db.GetModuleFiles(module.ID)
+		if err != nil {
+			continue
+		}
 
-        for _, file := range files {
-            if fileType != "" && file.FileName != fileType {
-                continue
-            }
+		for _, file := range files {
+			if fileType != "" && file.FileName != fileType {
+				continue
+			}
 
-            if !strings.HasSuffix(file.FileName, ".tf") {
-                continue
-            }
+			if !strings.HasSuffix(file.FileName, ".tf") {
+				continue
+			}
 
-            // Prefer AST-based extraction for known Terraform constructs.
-            matches := extractASTPatternMatches(file.Content, pattern)
-            if len(matches) == 0 {
-                // Fallback to substring + balanced brace extraction.
-                for _, m := range extractPatternMatches(file.Content, pattern) {
-                    matches = append(matches, astMatch{Code: m, BlockType: "", Summary: ""})
-                }
-            }
-            for i, match := range matches {
-                displayName := module.Name
-                if len(matches) > 1 {
-                    displayName = fmt.Sprintf("%s #%d", module.Name, i+1)
-                }
-                results = append(results, formatter.PatternMatch{
-                    ModuleName: displayName,
-                    FileName:   file.FileName,
-                    Match:      match.Code,
-                    BlockType:  match.BlockType,
-                    Summary:    match.Summary,
-                })
-            }
-        }
-    }
+			// Prefer AST-based extraction for known Terraform constructs.
+			matches := extractASTPatternMatches(file.Content, pattern)
+			if len(matches) == 0 {
+				// Fallback to substring + balanced brace extraction.
+				for _, m := range extractPatternMatches(file.Content, pattern) {
+					matches = append(matches, astMatch{Code: m, BlockType: "", Summary: ""})
+				}
+			}
+			for i, match := range matches {
+				displayName := module.Name
+				if len(matches) > 1 {
+					displayName = fmt.Sprintf("%s #%d", module.Name, i+1)
+				}
+				results = append(results, formatter.PatternMatch{
+					ModuleName: displayName,
+					FileName:   file.FileName,
+					Match:      match.Code,
+					BlockType:  match.BlockType,
+					Summary:    match.Summary,
+				})
+			}
+		}
+	}
 
-    return results
+	return results
 }
 
 func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter.PatternMatch {
-    trimmed := strings.TrimSpace(pattern)
-    if trimmed == "" {
-        return nil
-    }
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return nil
+	}
 
-    hasFilters := parseHasFilters(trimmed)
-    var blocks []database.HCLBlock
-    var err error
-    blockType := ""
-    typeLabel := ""
-    prefix := false
+	hasFilters := parseHasFilters(trimmed)
+	var blocks []database.HCLBlock
+	var err error
+	blockType := ""
+	typeLabel := ""
+	prefix := false
 
-    if want, ok := getQuotedArg(trimmed, "resource"); ok {
-        blockType = "resource"
-        typeLabel = want
-        prefix = true // resource supports prefix match
-    } else if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
-        blockType = "dynamic"
-        typeLabel = want
-        prefix = false
-    } else if strings.HasPrefix(trimmed, "lifecycle") {
-        blockType = "lifecycle"
-    } else {
-        return nil
-    }
+	if want, ok := getQuotedArg(trimmed, "resource"); ok {
+		blockType = "resource"
+		typeLabel = want
+		prefix = true // resource supports prefix match
+	} else if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
+		blockType = "dynamic"
+		typeLabel = want
+		prefix = false
+	} else if strings.HasPrefix(trimmed, "lifecycle") {
+		blockType = "lifecycle"
+	} else {
+		return nil
+	}
 
-    blocks, err = s.db.QueryHCLBlocks(blockType, typeLabel, prefix)
-    if err != nil || len(blocks) == 0 {
-        return nil
-    }
+	blocks, err = s.db.QueryHCLBlocks(blockType, typeLabel, prefix)
+	if err != nil || len(blocks) == 0 {
+		return nil
+	}
 
-    var results []formatter.PatternMatch
-    for _, b := range blocks {
-        // Filter by file type if requested
-        if fileType != "" && !strings.HasSuffix(b.FilePath, "/"+fileType) && !strings.HasSuffix(b.FilePath, fileType) {
-            continue
-        }
-        // Apply has: filters against flattened attr paths
-        if len(hasFilters) > 0 {
-            ok := true
-            attrSet := make(map[string]struct{})
-            if b.AttrPaths.Valid {
-                // Iterate lines without allocating a slice
-                rest := b.AttrPaths.String
-                for {
-                    line, r, cut := strings.Cut(rest, "\n")
-                    if line != "" {
-                        attrSet[line] = struct{}{}
-                    }
-                    if !cut {
-                        break
-                    }
-                    rest = r
-                }
-            }
-            for _, f := range hasFilters {
-                if _, present := attrSet[f]; !present {
-                    ok = false
-                    break
-                }
-            }
-            if !ok {
-                continue
-            }
-        }
+	var results []formatter.PatternMatch
+	for _, b := range blocks {
+		// Filter by file type if requested
+		if fileType != "" && !strings.HasSuffix(b.FilePath, "/"+fileType) && !strings.HasSuffix(b.FilePath, fileType) {
+			continue
+		}
+		// Apply has: filters against flattened attr paths
+		if len(hasFilters) > 0 {
+			ok := true
+			attrSet := make(map[string]struct{})
+			if b.AttrPaths.Valid {
+				// Iterate lines without allocating a slice
+				rest := b.AttrPaths.String
+				for {
+					line, r, cut := strings.Cut(rest, "\n")
+					if line != "" {
+						attrSet[line] = struct{}{}
+					}
+					if !cut {
+						break
+					}
+					rest = r
+				}
+			}
+			for _, f := range hasFilters {
+				if _, present := attrSet[f]; !present {
+					ok = false
+					break
+				}
+			}
+			if !ok {
+				continue
+			}
+		}
 
-        // Load file content to slice exact block
-        module, merr := s.db.GetModuleByID(b.ModuleID)
-        if merr != nil {
-            continue
-        }
-        f, ferr := s.db.GetFile(module.Name, b.FilePath)
-        if ferr != nil {
-            continue
-        }
-        start := int(b.StartByte)
-        end := int(b.EndByte)
-        if start < 0 { start = 0 }
-        if end > len(f.Content) { end = len(f.Content) }
-        if end < start { end = start }
-        code := strings.TrimSpace(f.Content[start:end])
+		// Load file content to slice exact block
+		module, merr := s.db.GetModuleByID(b.ModuleID)
+		if merr != nil {
+			continue
+		}
+		f, ferr := s.db.GetFile(module.Name, b.FilePath)
+		if ferr != nil {
+			continue
+		}
+		start := int(b.StartByte)
+		end := int(b.EndByte)
+		if start < 0 {
+			start = 0
+		}
+		if end > len(f.Content) {
+			end = len(f.Content)
+		}
+		if end < start {
+			end = start
+		}
+		code := strings.TrimSpace(f.Content[start:end])
 
-        results = append(results, formatter.PatternMatch{
-            ModuleName: module.Name,
-            FileName:   f.FileName,
-            Match:      code,
-            BlockType:  blockType,
-            Summary:    "",
-        })
-    }
-    return results
+		results = append(results, formatter.PatternMatch{
+			ModuleName: module.Name,
+			FileName:   f.FileName,
+			Match:      code,
+			BlockType:  blockType,
+			Summary:    "",
+		})
+	}
+	return results
 }
 
 // extractASTPatternMatches attempts semantic extraction of HCL blocks matching the pattern.
 // Supported patterns:
-//  - resource "<prefix>"        (prefix match on resource type)
-//  - dynamic "<label>"          (exact label match)
-//  - lifecycle                  (any lifecycle blocks)
+//   - resource "<prefix>"        (prefix match on resource type)
+//   - dynamic "<label>"          (exact label match)
+//   - lifecycle                  (any lifecycle blocks)
 type astMatch struct {
-    Code      string
-    BlockType string
-    Summary   string
+	Code      string
+	BlockType string
+	Summary   string
 }
 
 func extractASTPatternMatches(content, pattern string) []astMatch {
-    trimmed := strings.TrimSpace(pattern)
-    if trimmed == "" {
-        return nil
-    }
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return nil
+	}
 
-    parser := hclparse.NewParser()
-    file, diags := parser.ParseHCL([]byte(content), "temp.tf")
-    if diags.HasErrors() {
-        return nil
-    }
-    body, ok := file.Body.(*hclsyntax.Body)
-    if !ok {
-        return nil
-    }
+	parser := hclparse.NewParser()
+	file, diags := parser.ParseHCL([]byte(content), "temp.tf")
+	if diags.HasErrors() {
+		return nil
+	}
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
 
-    // Helper to slice the original content by block range
-    sliceBlock := func(b *hclsyntax.Block) string {
-        rng := b.Range()
-        start := rng.Start.Byte
-        end := rng.End.Byte
-        if start < 0 { start = 0 }
-        if end > len(content) { end = len(content) }
-        if end < start { end = start }
-        return strings.TrimSpace(content[start:end])
-    }
+	// Helper to slice the original content by block range
+	sliceBlock := func(b *hclsyntax.Block) string {
+		rng := b.Range()
+		start := rng.Start.Byte
+		end := rng.End.Byte
+		if start < 0 {
+			start = 0
+		}
+		if end > len(content) {
+			end = len(content)
+		}
+		if end < start {
+			end = start
+		}
+		return strings.TrimSpace(content[start:end])
+	}
 
-    var out []astMatch
+	var out []astMatch
 
-    // Optional attribute filters in the pattern: has:<path>
-    // Example: resource "azurerm_" has:for_each, lifecycle has:ignore_changes
-    hasFilters := parseHasFilters(trimmed)
+	// Optional attribute filters in the pattern: has:<path>
+	// Example: resource "azurerm_" has:for_each, lifecycle has:ignore_changes
+	hasFilters := parseHasFilters(trimmed)
 
-    if want, ok := getQuotedArg(trimmed, "resource"); ok {
-        for _, bl := range body.Blocks {
-            if bl.Type == "resource" && len(bl.Labels) >= 2 {
-                rtype := bl.Labels[0]
-                if strings.HasPrefix(rtype, want) && blockSatisfies(bl.Body, hasFilters) {
-                    out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "resource", Summary: summarizeAttributes("resource", bl)})
-                }
-            }
-        }
-        return out
-    }
+	if want, ok := getQuotedArg(trimmed, "resource"); ok {
+		for _, bl := range body.Blocks {
+			if bl.Type == "resource" && len(bl.Labels) >= 2 {
+				rtype := bl.Labels[0]
+				if strings.HasPrefix(rtype, want) && blockSatisfies(bl.Body, hasFilters) {
+					out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "resource", Summary: summarizeAttributes("resource", bl)})
+				}
+			}
+		}
+		return out
+	}
 
-    if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
+	if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
 
-        // Walk nested blocks to find dynamic blocks with matching label
-        var walk func(bdy *hclsyntax.Body)
-        walk = func(bdy *hclsyntax.Body) {
-            for _, bl := range bdy.Blocks {
-                if bl.Type == "dynamic" && len(bl.Labels) > 0 && bl.Labels[0] == want && blockSatisfies(bl.Body, hasFilters) {
-                    out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "dynamic", Summary: summarizeAttributes("dynamic", bl)})
-                }
-                if bl.Body != nil {
-                    walk(bl.Body)
-                }
-            }
-        }
-        walk(body)
-        return out
-    }
+		// Walk nested blocks to find dynamic blocks with matching label
+		var walk func(bdy *hclsyntax.Body)
+		walk = func(bdy *hclsyntax.Body) {
+			for _, bl := range bdy.Blocks {
+				if bl.Type == "dynamic" && len(bl.Labels) > 0 && bl.Labels[0] == want && blockSatisfies(bl.Body, hasFilters) {
+					out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "dynamic", Summary: summarizeAttributes("dynamic", bl)})
+				}
+				if bl.Body != nil {
+					walk(bl.Body)
+				}
+			}
+		}
+		walk(body)
+		return out
+	}
 
-    if strings.HasPrefix(trimmed, "lifecycle") {
-        // Find lifecycle blocks anywhere (commonly under resource)
-        var walk func(bdy *hclsyntax.Body)
-        walk = func(bdy *hclsyntax.Body) {
-            for _, bl := range bdy.Blocks {
-                if bl.Type == "lifecycle" && blockSatisfies(bl.Body, hasFilters) {
-                    out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "lifecycle", Summary: summarizeAttributes("lifecycle", bl)})
-                }
-                if bl.Body != nil {
-                    walk(bl.Body)
-                }
-            }
-        }
-        walk(body)
-        return out
-    }
+	if strings.HasPrefix(trimmed, "lifecycle") {
+		// Find lifecycle blocks anywhere (commonly under resource)
+		var walk func(bdy *hclsyntax.Body)
+		walk = func(bdy *hclsyntax.Body) {
+			for _, bl := range bdy.Blocks {
+				if bl.Type == "lifecycle" && blockSatisfies(bl.Body, hasFilters) {
+					out = append(out, astMatch{Code: sliceBlock(bl), BlockType: "lifecycle", Summary: summarizeAttributes("lifecycle", bl)})
+				}
+				if bl.Body != nil {
+					walk(bl.Body)
+				}
+			}
+		}
+		walk(body)
+		return out
+	}
 
-    return nil
+	return nil
 }
 
 // getQuotedArg extracts the first quoted string after a keyword, e.g. resource "foo"
 func getQuotedArg(pattern, keyword string) (string, bool) {
-    prefix := keyword + " "
-    if !strings.HasPrefix(pattern, prefix) {
-        return "", false
-    }
-    rest := pattern[len(prefix):]
-    first := strings.IndexByte(rest, '"')
-    if first < 0 {
-        return "", false
-    }
-    second := strings.IndexByte(rest[first+1:], '"')
-    if second < 0 {
-        return "", false
-    }
-    want := strings.TrimSpace(rest[first+1 : first+1+second])
-    return want, want != ""
+	prefix := keyword + " "
+	if !strings.HasPrefix(pattern, prefix) {
+		return "", false
+	}
+	rest := pattern[len(prefix):]
+	first := strings.IndexByte(rest, '"')
+	if first < 0 {
+		return "", false
+	}
+	second := strings.IndexByte(rest[first+1:], '"')
+	if second < 0 {
+		return "", false
+	}
+	want := strings.TrimSpace(rest[first+1 : first+1+second])
+	return want, want != ""
 }
 
 // parseHasFilters extracts has:<path> directives from pattern
 func parseHasFilters(pattern string) []string {
-    toks := strings.Fields(pattern)
-    var filters []string
-    for _, t := range toks {
-        if rest, ok := strings.CutPrefix(t, "has:"); ok {
-            filters = append(filters, rest)
-        }
-    }
-    return filters
+	toks := strings.Fields(pattern)
+	var filters []string
+	for _, t := range toks {
+		if rest, ok := strings.CutPrefix(t, "has:"); ok {
+			filters = append(filters, rest)
+		}
+	}
+	return filters
 }
 
 // blockSatisfies checks whether required paths exist in the block body.
 // Supports simple attribute presence and nested block.attr presence like lifecycle.ignore_changes
 func blockSatisfies(bdy *hclsyntax.Body, hasFilters []string) bool {
-    if len(hasFilters) == 0 {
-        return true
-    }
-    for _, path := range hasFilters {
-        if !hasPath(bdy, path) {
-            return false
-        }
-    }
-    return true
+	if len(hasFilters) == 0 {
+		return true
+	}
+	for _, path := range hasFilters {
+		if !hasPath(bdy, path) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasPath(bdy *hclsyntax.Body, path string) bool {
-    parts := strings.Split(path, ".")
-    return hasPathRec(bdy, parts)
+	parts := strings.Split(path, ".")
+	return hasPathRec(bdy, parts)
 }
 
 func hasPathRec(bdy *hclsyntax.Body, parts []string) bool {
-    if len(parts) == 0 {
-        return true
-    }
-    head := parts[0]
-    // Attribute present?
-    if len(parts) == 1 {
-        if _, ok := bdy.Attributes[head]; ok {
-            return true
-        }
-    }
-    // Try nested block with this type
-    for _, bl := range bdy.Blocks {
-        if bl.Type == head {
-            if bl.Body != nil && hasPathRec(bl.Body, parts[1:]) {
-                return true
-            }
-        }
-    }
-    return false
+	if len(parts) == 0 {
+		return true
+	}
+	head := parts[0]
+	// Attribute present?
+	if len(parts) == 1 {
+		if _, ok := bdy.Attributes[head]; ok {
+			return true
+		}
+	}
+	// Try nested block with this type
+	for _, bl := range bdy.Blocks {
+		if bl.Type == head {
+			if bl.Body != nil && hasPathRec(bl.Body, parts[1:]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // summarizeAttributes builds a concise summary of key attributes in a block.
 func summarizeAttributes(kind string, bl *hclsyntax.Block) string {
-    bdy := bl.Body
-    keys := make([]string, 0, len(bdy.Attributes))
-    for k := range bdy.Attributes {
-        keys = append(keys, k)
-    }
-    sort.Strings(keys)
-    if len(keys) == 0 {
-        return ""
-    }
-    // Include kind in label to avoid ambiguity and keep the parameter used
-    return fmt.Sprintf("%s attributes: %s", kind, strings.Join(keys, ", "))
+	bdy := bl.Body
+	keys := make([]string, 0, len(bdy.Attributes))
+	for k := range bdy.Attributes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return ""
+	}
+	// Include kind in label to avoid ambiguity and keep the parameter used
+	return fmt.Sprintf("%s attributes: %s", kind, strings.Join(keys, ", "))
 }
 
 func extractPatternMatches(content, pattern string) []string {
@@ -1232,10 +1204,10 @@ func (s *Server) handleListModuleExamples(args any) map[string]any {
 		return ErrorResponse("Error: Invalid parameters")
 	}
 
-    module, err := s.resolveModule(moduleArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
-    }
+	module, err := s.resolveModule(moduleArgs.ModuleName)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", moduleArgs.ModuleName))
+	}
 
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
@@ -1243,8 +1215,8 @@ func (s *Server) handleListModuleExamples(args any) map[string]any {
 	}
 
 	exampleMap := buildExampleMap(files)
-    text := formatter.ExampleList(module.Name, exampleMap)
-    return SuccessResponse(text)
+	text := formatter.ExampleList(module.Name, exampleMap)
+	return SuccessResponse(text)
 }
 
 func buildExampleMap(files []database.ModuleFile) map[string][]string {
@@ -1274,10 +1246,10 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 		return ErrorResponse("Error: Invalid parameters")
 	}
 
-    module, err := s.resolveModule(exampleArgs.ModuleName)
-    if err != nil {
-        return ErrorResponse(fmt.Sprintf("Module '%s' not found", exampleArgs.ModuleName))
-    }
+	module, err := s.resolveModule(exampleArgs.ModuleName)
+	if err != nil {
+		return ErrorResponse(fmt.Sprintf("Module '%s' not found", exampleArgs.ModuleName))
+	}
 
 	files, err := s.db.GetModuleFiles(module.ID)
 	if err != nil {
@@ -1290,8 +1262,8 @@ func (s *Server) handleGetExampleContent(args any) map[string]any {
 	}
 
 	sortedFiles := sortExampleFiles(exampleFiles)
-    text := formatter.ExampleContent(module.Name, exampleArgs.ExampleName, sortedFiles)
-    return SuccessResponse(text)
+	text := formatter.ExampleContent(module.Name, exampleArgs.ExampleName, sortedFiles)
+	return SuccessResponse(text)
 }
 
 func filterExampleFiles(files []database.ModuleFile, exampleName string) []database.ModuleFile {
@@ -1464,19 +1436,19 @@ func (s *Server) sendError(code int, message string, id any) {
 
 // resolveModule resolves a provided name or alias to a canonical module record.
 func (s *Server) resolveModule(nameOrAlias string) (*database.Module, error) {
-    if m, err := s.db.GetModule(nameOrAlias); err == nil {
-        return m, nil
-    }
-    if m, err := s.db.ResolveModuleByAlias(nameOrAlias); err == nil {
-        return m, nil
-    }
-    if m, err := s.db.ResolveModuleByAliasPrefix(nameOrAlias); err == nil {
-        return m, nil
-    }
-    mods, err := s.db.SearchModules(nameOrAlias, 1)
-    if err == nil && len(mods) > 0 {
-        m := mods[0]
-        return &m, nil
-    }
-    return nil, fmt.Errorf("module not found for '%s'", nameOrAlias)
+	if m, err := s.db.GetModule(nameOrAlias); err == nil {
+		return m, nil
+	}
+	if m, err := s.db.ResolveModuleByAlias(nameOrAlias); err == nil {
+		return m, nil
+	}
+	if m, err := s.db.ResolveModuleByAliasPrefix(nameOrAlias); err == nil {
+		return m, nil
+	}
+	mods, err := s.db.SearchModules(nameOrAlias, 1)
+	if err == nil && len(mods) > 0 {
+		m := mods[0]
+		return &m, nil
+	}
+	return nil, fmt.Errorf("module not found for '%s'", nameOrAlias)
 }

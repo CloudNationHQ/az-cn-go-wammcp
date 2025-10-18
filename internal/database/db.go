@@ -99,14 +99,14 @@ type ModuleTag struct {
 }
 
 type HCLBlock struct {
-    ID        int64
-    ModuleID  int64
-    FilePath  string
-    BlockType string
-    TypeLabel sql.NullString
-    StartByte int64
-    EndByte   int64
-    AttrPaths sql.NullString
+	ID        int64
+	ModuleID  int64
+	FilePath  string
+	BlockType string
+	TypeLabel sql.NullString
+	StartByte int64
+	EndByte   int64
+	AttrPaths sql.NullString
 }
 
 func New(dbPath string) (*DB, error) {
@@ -296,6 +296,31 @@ func (db *DB) SearchFiles(query string, limit int) ([]ModuleFile, error) {
 	return files, rows.Err()
 }
 
+func (db *DB) SearchFilesFTS(match string, limit int) ([]ModuleFile, error) {
+	rows, err := db.conn.Query(`
+        SELECT mf.id, mf.module_id, mf.file_name, mf.file_path, mf.file_type, mf.content, mf.size_bytes
+        FROM module_files mf
+        JOIN files_fts ON files_fts.rowid = mf.id
+        WHERE files_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+    `, match, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []ModuleFile
+	for rows.Next() {
+		var f ModuleFile
+		if err := rows.Scan(&f.ID, &f.ModuleID, &f.FileName, &f.FilePath, &f.FileType, &f.Content, &f.SizeBytes); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
 func (db *DB) GetFile(moduleName string, filePath string) (*ModuleFile, error) {
 	var f ModuleFile
 	err := db.conn.QueryRow(`
@@ -467,15 +492,15 @@ func (db *DB) ClearModuleData(moduleID int64) error {
 	}
 	defer tx.Rollback()
 
-    tables := []string{
-        "module_files",
-        "module_variables",
-        "module_outputs",
-        "module_resources",
-        "module_data_sources",
-        "module_examples",
-        "hcl_blocks",
-    }
+	tables := []string{
+		"module_files",
+		"module_variables",
+		"module_outputs",
+		"module_resources",
+		"module_data_sources",
+		"module_examples",
+		"hcl_blocks",
+	}
 
 	for _, table := range tables {
 		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE module_id = ?", table), moduleID); err != nil {
@@ -506,117 +531,119 @@ func (db *DB) SetModuleHasExamples(moduleID int64, hasExamples bool) error {
 	return err
 }
 
-func (db *DB) InsertHCLBlock(moduleID int64, filePath, blockType, typeLabel string, startByte, endByte int, attrPaths string) error {
-    _, err := db.conn.Exec(`
+func (db *DB) InsertHCLBlock(moduleID int64, filePath, blockType, typeLabel string, startByte, endByte int, attrPaths string) (int64, error) {
+	res, err := db.conn.Exec(`
         INSERT INTO hcl_blocks (module_id, file_path, block_type, type_label, start_byte, end_byte, attr_paths)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     `, moduleID, filePath, blockType, nullIfEmpty(typeLabel), startByte, endByte, nullIfEmpty(attrPaths))
-    return err
-}
-
-func (db *DB) ClearModuleHCLBlocks(moduleID int64) error {
-    _, err := db.conn.Exec(`DELETE FROM hcl_blocks WHERE module_id = ?`, moduleID)
-    return err
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // QueryHCLBlocks finds blocks by type and optional label match.
 // If prefix is true, matches rows where type_label starts with the given value.
 func (db *DB) QueryHCLBlocks(blockType, typeLabel string, prefix bool) ([]HCLBlock, error) {
-    var rows *sql.Rows
-    var err error
-    if blockType == "lifecycle" {
-        rows, err = db.conn.Query(`
+	var rows *sql.Rows
+	var err error
+	if blockType == "lifecycle" {
+		rows, err = db.conn.Query(`
             SELECT id, module_id, file_path, block_type, type_label, start_byte, end_byte, attr_paths
             FROM hcl_blocks
             WHERE block_type = 'lifecycle'
         `)
-    } else if prefix {
-        like := typeLabel + "%"
-        rows, err = db.conn.Query(`
+	} else if prefix {
+		like := typeLabel + "%"
+		rows, err = db.conn.Query(`
             SELECT id, module_id, file_path, block_type, type_label, start_byte, end_byte, attr_paths
             FROM hcl_blocks
             WHERE block_type = ? AND type_label LIKE ?
         `, blockType, like)
-    } else {
-        rows, err = db.conn.Query(`
+	} else {
+		rows, err = db.conn.Query(`
             SELECT id, module_id, file_path, block_type, type_label, start_byte, end_byte, attr_paths
             FROM hcl_blocks
             WHERE block_type = ? AND type_label = ?
         `, blockType, typeLabel)
-    }
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    var out []HCLBlock
-    for rows.Next() {
-        var b HCLBlock
-        if err := rows.Scan(&b.ID, &b.ModuleID, &b.FilePath, &b.BlockType, &b.TypeLabel, &b.StartByte, &b.EndByte, &b.AttrPaths); err != nil {
-            return nil, err
-        }
-        out = append(out, b)
-    }
-    return out, rows.Err()
+	var out []HCLBlock
+	for rows.Next() {
+		var b HCLBlock
+		if err := rows.Scan(&b.ID, &b.ModuleID, &b.FilePath, &b.BlockType, &b.TypeLabel, &b.StartByte, &b.EndByte, &b.AttrPaths); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }
 
 func nullIfEmpty(s string) any {
-    if s == "" {
-        return nil
-    }
-    return s
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // HCLBlockExists checks if a file contains at least one HCL block satisfying the filters.
 // If blockType is empty, no block type filter is applied. If typePrefix is set, it matches type_label prefix.
 // All attrFilters must be present in attr_paths (newline-separated) if provided.
 func (db *DB) HCLBlockExists(moduleID int64, filePath, blockType, typePrefix string, attrFilters []string) (bool, error) {
-    base := `SELECT 1 FROM hcl_blocks WHERE module_id = ? AND file_path = ?`
-    args := []any{moduleID, filePath}
-    if blockType != "" {
-        base += ` AND block_type = ?`
-        args = append(args, blockType)
-    }
-    if typePrefix != "" {
-        base += ` AND type_label LIKE ?`
-        args = append(args, typePrefix+"%")
-    }
-    for range attrFilters {
-        base += ` AND instr(IFNULL(attr_paths, ''), ?) > 0`
-    }
-    for _, f := range attrFilters {
-        args = append(args, f)
-    }
-    base += ` LIMIT 1`
-    var one int
-    err := db.conn.QueryRow(base, args...).Scan(&one)
-    if err == sql.ErrNoRows {
-        return false, nil
-    }
-    if err != nil {
-        return false, err
-    }
-    return true, nil
+	base := `SELECT 1 FROM hcl_blocks WHERE module_id = ? AND file_path = ?`
+	args := []any{moduleID, filePath}
+	if blockType != "" {
+		base += ` AND block_type = ?`
+		args = append(args, blockType)
+	}
+	if typePrefix != "" {
+		base += ` AND type_label LIKE ?`
+		args = append(args, typePrefix+"%")
+	}
+	for range attrFilters {
+		base += ` AND instr(IFNULL(attr_paths, ''), ?) > 0`
+	}
+	for _, f := range attrFilters {
+		args = append(args, f)
+	}
+	base += ` LIMIT 1`
+	var one int
+	err := db.conn.QueryRow(base, args...).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type ModuleStructureSummary struct {
-    ResourceCount int
-    LifecycleCount int
-    DynamicLabels []string
-    TopResourceTypes []string
-    ResourcesWithIgnoreChanges int
+	ResourceCount              int
+	LifecycleCount             int
+	DynamicLabels              []string
+	TopResourceTypes           []string
+	ResourcesWithIgnoreChanges int
 }
 
 func (db *DB) SummarizeModuleStructure(moduleID int64) (*ModuleStructureSummary, error) {
-    sum := &ModuleStructureSummary{}
+	sum := &ModuleStructureSummary{}
 
-    // counts
-    _ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource'`, moduleID).Scan(&sum.ResourceCount)
-    _ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'lifecycle'`, moduleID).Scan(&sum.LifecycleCount)
-    _ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource' AND instr(IFNULL(attr_paths,''), 'lifecycle.ignore_changes') > 0`, moduleID).Scan(&sum.ResourcesWithIgnoreChanges)
+	// counts
+	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource'`, moduleID).Scan(&sum.ResourceCount)
+	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'lifecycle'`, moduleID).Scan(&sum.LifecycleCount)
+	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource' AND instr(IFNULL(attr_paths,''), 'lifecycle.ignore_changes') > 0`, moduleID).Scan(&sum.ResourcesWithIgnoreChanges)
 
-    // top resource types (by frequency)
-    rows, err := db.conn.Query(`
+	// top resource types (by frequency)
+	rows, err := db.conn.Query(`
         SELECT type_label, COUNT(*) AS cnt
         FROM hcl_blocks
         WHERE module_id = ? AND block_type = 'resource' AND type_label IS NOT NULL
@@ -624,34 +651,80 @@ func (db *DB) SummarizeModuleStructure(moduleID int64) (*ModuleStructureSummary,
         ORDER BY cnt DESC, type_label ASC
         LIMIT 5
     `, moduleID)
-    if err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var label sql.NullString
-            var cnt int
-            if err := rows.Scan(&label, &cnt); err == nil && label.Valid {
-                sum.TopResourceTypes = append(sum.TopResourceTypes, label.String)
-            }
-        }
-    }
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var label sql.NullString
+			var cnt int
+			if err := rows.Scan(&label, &cnt); err == nil && label.Valid {
+				sum.TopResourceTypes = append(sum.TopResourceTypes, label.String)
+			}
+		}
+	}
 
-    // distinct dynamic labels
-    rows2, err2 := db.conn.Query(`
+	// distinct dynamic labels
+	rows2, err2 := db.conn.Query(`
         SELECT DISTINCT type_label FROM hcl_blocks
         WHERE module_id = ? AND block_type = 'dynamic' AND type_label IS NOT NULL
         ORDER BY type_label
     `, moduleID)
-    if err2 == nil {
-        defer rows2.Close()
-        for rows2.Next() {
-            var label sql.NullString
-            if err := rows2.Scan(&label); err == nil && label.Valid {
-                sum.DynamicLabels = append(sum.DynamicLabels, label.String)
-            }
-        }
-    }
+	if err2 == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var label sql.NullString
+			if err := rows2.Scan(&label); err == nil && label.Valid {
+				sum.DynamicLabels = append(sum.DynamicLabels, label.String)
+			}
+		}
+	}
 
-    return sum, nil
+	return sum, nil
+}
+
+
+func (db *DB) GetModuleDynamicLabels(moduleID int64) ([]string, error) {
+	rows, err := db.conn.Query(`
+        SELECT DISTINCT type_label FROM hcl_blocks WHERE module_id = ? AND block_type = 'dynamic' AND type_label IS NOT NULL
+    `, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var labels []string
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		labels = append(labels, label)
+	}
+	return labels, rows.Err()
+}
+
+func (db *DB) CountResourceBlocks(moduleID int64) (int, error) {
+	var total int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource'`, moduleID).Scan(&total)
+	return total, err
+}
+
+
+func (db *DB) GetModuleResourceTypes(moduleID int64) ([]string, error) {
+	rows, err := db.conn.Query(`
+        SELECT resource_type FROM module_resources WHERE module_id = ?
+    `, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var types []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		types = append(types, t)
+	}
+	return types, rows.Err()
 }
 
 // ClearModuleTags removes all persisted tags for the given module.
@@ -748,52 +821,4 @@ func (db *DB) ResolveModuleByAliasPrefix(prefix string) (*Module, error) {
 		return nil, err
 	}
 	return &m, nil
-}
-
-// GetRelatedModules returns modules related by shared tags and resource types.
-// Tags are weighted higher than resource-type overlap for stronger semantic signal.
-func (db *DB) GetRelatedModules(moduleID int64, limit int) ([]Module, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	query := `
-        SELECT m.id, m.name, m.full_name, m.description, m.repo_url, m.last_updated, m.synced_at, m.readme_content, m.has_examples, SUM(score) as total_score
-        FROM (
-            SELECT other.module_id AS mid, 2 AS score
-            FROM module_tags mt
-            JOIN module_tags other ON other.tag = mt.tag AND other.module_id != mt.module_id
-            WHERE mt.module_id = ?
-            UNION ALL
-            SELECT other.module_id AS mid, 1 AS score
-            FROM module_resources r
-            JOIN module_resources other ON other.resource_type = r.resource_type AND other.module_id != r.module_id
-            WHERE r.module_id = ?
-            UNION ALL
-            SELECT other.module_id AS mid, 1 AS score
-            FROM hcl_blocks hb
-            JOIN hcl_blocks other ON other.block_type = 'dynamic' AND hb.block_type = 'dynamic' AND IFNULL(other.type_label,'') = IFNULL(hb.type_label,'') AND other.module_id != hb.module_id
-            WHERE hb.module_id = ?
-        ) s
-        JOIN modules m ON m.id = s.mid
-        GROUP BY m.id
-        ORDER BY total_score DESC, m.name ASC
-        LIMIT ?
-    `
-
-    rows, err := db.conn.Query(query, moduleID, moduleID, moduleID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var modules []Module
-	for rows.Next() {
-		var m Module
-		var total int
-		if err := rows.Scan(&m.ID, &m.Name, &m.FullName, &m.Description, &m.RepoURL, &m.LastUpdated, &m.SyncedAt, &m.ReadmeContent, &m.HasExamples, &total); err != nil {
-			return nil, err
-		}
-		modules = append(modules, m)
-	}
-	return modules, rows.Err()
 }

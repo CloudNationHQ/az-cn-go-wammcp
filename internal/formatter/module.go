@@ -49,8 +49,8 @@ func SearchResults(query string, modules []database.Module) string {
 }
 
 func ModuleInfo(module *database.Module, variables []database.ModuleVariable, outputs []database.ModuleOutput, resources []database.ModuleResource, files []database.ModuleFile) string {
-    var text strings.Builder
-    text.WriteString(fmt.Sprintf("# %s\n\n", module.Name))
+	var text strings.Builder
+	text.WriteString(fmt.Sprintf("# %s\n\n", module.Name))
 
 	if module.Description != "" {
 		text.WriteString(fmt.Sprintf("**Description:** %s\n\n", module.Description))
@@ -72,9 +72,9 @@ func ModuleInfo(module *database.Module, variables []database.ModuleVariable, ou
 		text.WriteString(ResourcesSection(resources))
 	}
 
-    if len(files) > 0 {
-        text.WriteString(FilesSection(files))
-    }
+	if len(files) > 0 {
+		text.WriteString(FilesSection(files))
+	}
 
 	if module.ReadmeContent != "" {
 		text.WriteString(ReadmeExcerpt(module.ReadmeContent))
@@ -82,44 +82,26 @@ func ModuleInfo(module *database.Module, variables []database.ModuleVariable, ou
 
 	return text.String()
 }
-
-func RelatedModules(moduleName string, related []database.Module) string {
-    var text strings.Builder
-    text.WriteString(fmt.Sprintf("# Related modules for %s\n\n", moduleName))
-    if len(related) == 0 {
-        text.WriteString("No related modules found.\n")
-        return text.String()
-    }
-    for _, m := range related {
-        text.WriteString(fmt.Sprintf("- %s", m.Name))
-        if m.Description != "" {
-            text.WriteString(fmt.Sprintf(" — %s", m.Description))
-        }
-        text.WriteString("\n")
-    }
-    return text.String()
-}
-
 func StructuralSummaryValues(resourceCount, lifecycleCount, withIgnore int, topResourceTypes, dynamicLabels []string) string {
-    var text strings.Builder
-    text.WriteString("## Structural Summary\n\n")
-    text.WriteString(fmt.Sprintf("- Resources: %d\n", resourceCount))
-    text.WriteString(fmt.Sprintf("- Lifecycle blocks: %d\n", lifecycleCount))
-    if withIgnore > 0 {
-        text.WriteString(fmt.Sprintf("- Resources with lifecycle.ignore_changes: %d\n", withIgnore))
-    }
-    if len(topResourceTypes) > 0 {
-        text.WriteString("- Top resource types: ")
-        text.WriteString(strings.Join(topResourceTypes, ", "))
-        text.WriteString("\n")
-    }
-    if len(dynamicLabels) > 0 {
-        text.WriteString("- Dynamic labels: ")
-        text.WriteString(strings.Join(dynamicLabels, ", "))
-        text.WriteString("\n")
-    }
-    text.WriteString("\n")
-    return text.String()
+	var text strings.Builder
+	text.WriteString("## Structural Summary\n\n")
+	text.WriteString(fmt.Sprintf("- Resources: %d\n", resourceCount))
+	text.WriteString(fmt.Sprintf("- Lifecycle blocks: %d\n", lifecycleCount))
+	if withIgnore > 0 {
+		text.WriteString(fmt.Sprintf("- Resources with lifecycle.ignore_changes: %d\n", withIgnore))
+	}
+	if len(topResourceTypes) > 0 {
+		text.WriteString("- Top resource types: ")
+		text.WriteString(strings.Join(topResourceTypes, ", "))
+		text.WriteString("\n")
+	}
+	if len(dynamicLabels) > 0 {
+		text.WriteString("- Dynamic labels: ")
+		text.WriteString(strings.Join(dynamicLabels, ", "))
+		text.WriteString("\n")
+	}
+	text.WriteString("\n")
+	return text.String()
 }
 
 func VariablesSection(variables []database.ModuleVariable) string {
