@@ -4,15 +4,15 @@ An MCP (Model Context Protocol) server that indexes, analyzes, and serves cloudn
 
 ## Features
 
-**Module Discovery**
+***Module Discovery***
 
 List and search all available Terraform modules with fast, FTS-backed lookups
 
-**Code Search**
+***Code Search***
 
 Search across all module code (any .tf file) for patterns, resources, or free text
 
-**Relationship Analysis**
+***Relationship Analysis***
 
 Reveal precise, AST‑aware relationships inside Terraform expressions.
 
@@ -22,31 +22,31 @@ It's module scoped or cross‑module queries (when no module is specified)
 
 It uses natural language prompts
 
-**Module Analysis**
+***Module Analysis***
 
 Get detailed info on variables, outputs, resources, and examples in one response
 
-**Pattern Comparison**
+***Pattern Comparison***
 
 Compare code patterns (e.g., dynamic blocks, lifecycle, resource types) across modules.
 
 Uses HCL AST for tighter, block‑aware matches when patterns like `resource "..."`, `dynamic "..."`, or `lifecycle` are used; falls back to text search otherwise.
 
-**Example Access**
+***Example Access***
 
 Retrieve usage examples per module, including example file contents
 
-**Variable Extraction**
+***Variable Extraction***
 
 Extract complete variable definitions including types, defaults, and sensitivity
 
-**Short-name Aliases**
+***Short-name Aliases***
 
 Use short module names (e.g., `vnet`, `kv`, `pe`, `agw`) instead of full names (e.g., `terraform-azure-vnet`).
 
 Aliases are auto-generated from module names, submodules, and tags during sync and work with all tools that accept `module_name`.
 
-**GitHub Sync**
+***GitHub Sync***
 
 Syncs and indexes modules from GitHub into a local SQLite database for fast queries.
 
@@ -62,7 +62,7 @@ GitHub Personal Access Token (optional, for higher rate limits) with `repo → p
 
 ## Configuration
 
-**Server flags**
+***Server flags***
 
 The server accepts command-line flags for configuration:
 
@@ -72,7 +72,7 @@ The server accepts command-line flags for configuration:
 
 --db - Path to SQLite database file (default: "index.db")
 
-**Adding to AI agents**
+***Adding to AI agents***
 
 To use this MCP server with AI agents (Claude CLI, Copilot, Codex CLI, or other MCP-compatible clients), add it to their configuration file:
 
@@ -95,7 +95,7 @@ make build
 
 **Once configured, you can ask any agentic agent that supports additional MCP servers:**
 
-**Relationship Explorer**
+***Relationship Explorer***
 
 Show subnet interactions in redis and explain it.
 
@@ -109,13 +109,13 @@ Find role assignments that reference the kubelet identity in terraform-azure-aks
 
 Compare subnet_id relationships between redis and terraform-azure-app
 
-**Module Info**
+***Module Info***
 
 Show module info for vnet and highlight only the required variables.
 
 Show module info for kv and list all resources it creates.
 
-**Examples**
+***Examples***
 
 List all examples for terraform-azure-aa.
 
@@ -123,7 +123,7 @@ List the examples for sa, then open the example that demonstrates a private endp
 
 For terraform-azure-func, list examples and open the private-endpoint example in full code.
 
-**AST Pattern Compare (block‑aware)**
+***AST Pattern Compare (block‑aware)***
 
 Compare dynamic "identity" across modules and show one example per unique pattern, with full code.
 
@@ -131,7 +131,7 @@ Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_cha
 
 In vnet, show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
 
-**Focused Code Queries**
+***Focused Code Queries***
 
 Search code for key vault/keyvault access_policy and show matching files and snippets.
 
@@ -141,13 +141,13 @@ In vwan and vgw, show resource "azurerm_vpn_gateway_nat_rule" with full blocks.
 
 In vnet, show dynamic "delegation" with full blocks.
 
-**Sync and Maintenance**
+***Sync and Maintenance***
 
 Run a full sync of all modules and report the job ID; then show the sync status for that job ID.
 
 Run an incremental sync (updates only) and report the job ID; then show the sync status for that job ID.
 
-**Tips**
+***Tips***
 ```
 For AST mode, include quotes around types/labels in the pattern:
   resource "azurerm_...", dynamic "identity", lifecycle
