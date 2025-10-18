@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.6.0...v1.7.0) (2025-10-18)
+
+
+### Features
+
+* implement explain relationship tool ([#26](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/26)) ([926ebce](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/926ebce3d0672237c8e6f7cc4b52e6e4473b4f1b))
+
 ## [1.6.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.5.0...v1.6.0) (2025-10-18)
 
 
