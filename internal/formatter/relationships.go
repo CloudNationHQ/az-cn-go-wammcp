@@ -8,20 +8,16 @@ import (
 	"github.com/cloudnationhq/az-cn-go-wammcp/internal/database"
 )
 
-// ModuleRelationshipView bundles per-module relationship data for multi-module reporting.
 type ModuleRelationshipView struct {
 	ModuleName    string
 	Relationships []database.HCLRelationship
 	Files         map[string]database.ModuleFile
 }
 
-// RelationshipAnalysis renders a human-readable summary of relationship matches
-// for a given module and query term.
 func RelationshipAnalysis(moduleName, term string, rels []database.HCLRelationship, files map[string]database.ModuleFile) string {
 	return renderRelationshipSection("#", moduleName, term, rels, files)
 }
 
-// RelationshipAnalysisAcross renders a grouped summary for multiple modules.
 func RelationshipAnalysisAcross(term string, views []ModuleRelationshipView) string {
 	var text strings.Builder
 
@@ -58,7 +54,6 @@ func renderRelationshipSection(headingPrefix, moduleName, term string, rels []da
 		return text.String()
 	}
 
-	// ensure deterministic ordering (e.g., map iteration over files)
 	sort.SliceStable(rels, func(i, j int) bool {
 		if rels[i].FilePath == rels[j].FilePath {
 			if rels[i].BlockType == rels[j].BlockType {
@@ -148,7 +143,7 @@ func snippetForByteRange(content string, startByte int64) (string, int) {
 			highlightIdx = i
 			break
 		}
-		byteOffset = lineEnd + 1 // account for newline
+		byteOffset = lineEnd + 1
 	}
 
 	start := max(0, highlightIdx-2)

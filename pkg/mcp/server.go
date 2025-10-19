@@ -77,7 +77,6 @@ type SyncJob struct {
 	Error       string
 }
 
-// ensureDB initializes the database and syncer if not already initialized
 func (s *Server) ensureDB() error {
 	s.dbMutex.Lock()
 	defer s.dbMutex.Unlock()
@@ -612,7 +611,6 @@ func (s *Server) handleGetModuleInfo(args any) map[string]any {
 	resources, _ := s.db.GetModuleResources(module.ID)
 	files, _ := s.db.GetModuleFiles(module.ID)
 
-	// structural summary via AST index
 	summary, _ := s.db.SummarizeModuleStructure(module.ID)
 	text := formatter.ModuleInfo(module, variables, outputs, resources, files)
 	if summary != nil {
@@ -1248,7 +1246,6 @@ func deriveQueryFromTokens(tokens []promptToken, moduleIdx []int) string {
 func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType string) []formatter.PatternMatch {
 	var results []formatter.PatternMatch
 
-	// First try the indexed AST block search for supported patterns
 	indexed := s.findPatternMatchesIndexed(pattern, fileType)
 	if len(indexed) > 0 {
 		return indexed
@@ -1269,10 +1266,8 @@ func (s *Server) findPatternMatches(modules []database.Module, pattern, fileType
 				continue
 			}
 
-			// Prefer AST-based extraction for known Terraform constructs.
 			matches := extractASTPatternMatches(file.Content, pattern)
 			if len(matches) == 0 {
-				// Fallback to substring + balanced brace extraction.
 				for _, m := range extractPatternMatches(file.Content, pattern) {
 					matches = append(matches, astMatch{Code: m, BlockType: "", Summary: ""})
 				}
@@ -1312,7 +1307,7 @@ func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter
 	if want, ok := getQuotedArg(trimmed, "resource"); ok {
 		blockType = "resource"
 		typeLabel = want
-		prefix = true // resource supports prefix match
+		prefix = true
 	} else if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
 		blockType = "dynamic"
 		typeLabel = want
@@ -1330,16 +1325,13 @@ func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter
 
 	var results []formatter.PatternMatch
 	for _, b := range blocks {
-		// Filter by file type if requested
 		if fileType != "" && !strings.HasSuffix(b.FilePath, "/"+fileType) && !strings.HasSuffix(b.FilePath, fileType) {
 			continue
 		}
-		// Apply has: filters against flattened attr paths
 		if len(hasFilters) > 0 {
 			ok := true
 			attrSet := make(map[string]struct{})
 			if b.AttrPaths.Valid {
-				// Iterate lines without allocating a slice
 				rest := b.AttrPaths.String
 				for {
 					line, r, cut := strings.Cut(rest, "\n")
@@ -1363,7 +1355,6 @@ func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter
 			}
 		}
 
-		// Load file content to slice exact block
 		module, merr := s.db.GetModuleByID(b.ModuleID)
 		if merr != nil {
 			continue
@@ -1396,11 +1387,6 @@ func (s *Server) findPatternMatchesIndexed(pattern, fileType string) []formatter
 	return results
 }
 
-// extractASTPatternMatches attempts semantic extraction of HCL blocks matching the pattern.
-// Supported patterns:
-//   - resource "<prefix>"        (prefix match on resource type)
-//   - dynamic "<label>"          (exact label match)
-//   - lifecycle                  (any lifecycle blocks)
 type astMatch struct {
 	Code      string
 	BlockType string
@@ -1423,7 +1409,6 @@ func extractASTPatternMatches(content, pattern string) []astMatch {
 		return nil
 	}
 
-	// Helper to slice the original content by block range
 	sliceBlock := func(b *hclsyntax.Block) string {
 		rng := b.Range()
 		start := rng.Start.Byte
@@ -1442,8 +1427,6 @@ func extractASTPatternMatches(content, pattern string) []astMatch {
 
 	var out []astMatch
 
-	// Optional attribute filters in the pattern: has:<path>
-	// Example: resource "azurerm_" has:for_each, lifecycle has:ignore_changes
 	hasFilters := parseHasFilters(trimmed)
 
 	if want, ok := getQuotedArg(trimmed, "resource"); ok {
@@ -1460,7 +1443,6 @@ func extractASTPatternMatches(content, pattern string) []astMatch {
 
 	if want, ok := getQuotedArg(trimmed, "dynamic"); ok {
 
-		// Walk nested blocks to find dynamic blocks with matching label
 		var walk func(bdy *hclsyntax.Body)
 		walk = func(bdy *hclsyntax.Body) {
 			for _, bl := range bdy.Blocks {
@@ -1477,7 +1459,6 @@ func extractASTPatternMatches(content, pattern string) []astMatch {
 	}
 
 	if strings.HasPrefix(trimmed, "lifecycle") {
-		// Find lifecycle blocks anywhere (commonly under resource)
 		var walk func(bdy *hclsyntax.Body)
 		walk = func(bdy *hclsyntax.Body) {
 			for _, bl := range bdy.Blocks {
@@ -1496,7 +1477,6 @@ func extractASTPatternMatches(content, pattern string) []astMatch {
 	return nil
 }
 
-// getQuotedArg extracts the first quoted string after a keyword, e.g. resource "foo"
 func getQuotedArg(pattern, keyword string) (string, bool) {
 	prefix := keyword + " "
 	if !strings.HasPrefix(pattern, prefix) {
@@ -1515,7 +1495,6 @@ func getQuotedArg(pattern, keyword string) (string, bool) {
 	return want, want != ""
 }
 
-// parseHasFilters extracts has:<path> directives from pattern
 func parseHasFilters(pattern string) []string {
 	toks := strings.Fields(pattern)
 	var filters []string
@@ -1527,8 +1506,6 @@ func parseHasFilters(pattern string) []string {
 	return filters
 }
 
-// blockSatisfies checks whether required paths exist in the block body.
-// Supports simple attribute presence and nested block.attr presence like lifecycle.ignore_changes
 func blockSatisfies(bdy *hclsyntax.Body, hasFilters []string) bool {
 	if len(hasFilters) == 0 {
 		return true
@@ -1568,7 +1545,6 @@ func hasPathRec(bdy *hclsyntax.Body, parts []string) bool {
 	return false
 }
 
-// summarizeAttributes builds a concise summary of key attributes in a block.
 func summarizeAttributes(kind string, bl *hclsyntax.Block) string {
 	bdy := bl.Body
 	keys := make([]string, 0, len(bdy.Attributes))
@@ -1579,7 +1555,6 @@ func summarizeAttributes(kind string, bl *hclsyntax.Block) string {
 	if len(keys) == 0 {
 		return ""
 	}
-	// Include kind in label to avoid ambiguity and keep the parameter used
 	return fmt.Sprintf("%s attributes: %s", kind, strings.Join(keys, ", "))
 }
 
@@ -1891,7 +1866,6 @@ func (s *Server) sendError(code int, message string, id any) {
 	s.sendResponse(response)
 }
 
-// resolveModule resolves a provided name or alias to a canonical module record.
 func (s *Server) resolveModule(nameOrAlias string) (*database.Module, error) {
 	if m, err := s.db.GetModule(nameOrAlias); err == nil {
 		return m, nil
