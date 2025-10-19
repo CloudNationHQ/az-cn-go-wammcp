@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.7.0...v1.8.0) (2025-10-19)
+
+
+### Features
+
+* some cleanups ([#28](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/28)) ([89318e5](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/89318e51c034b105fed784804244abd4bf81c14f))
+
 ## [1.7.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.6.0...v1.7.0) (2025-10-18)
 
 
