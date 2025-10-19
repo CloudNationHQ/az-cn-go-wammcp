@@ -745,9 +745,6 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// HCLBlockExists checks if a file contains at least one HCL block satisfying the filters.
-// If blockType is empty, no block type filter is applied. If typePrefix is set, it matches type_label prefix.
-// All attrFilters must be present in attr_paths (newline-separated) if provided.
 func (db *DB) HCLBlockExists(moduleID int64, filePath, blockType, typePrefix string, attrFilters []string) (bool, error) {
 	base := `SELECT 1 FROM hcl_blocks WHERE module_id = ? AND file_path = ?`
 	args := []any{moduleID, filePath}
@@ -788,12 +785,10 @@ type ModuleStructureSummary struct {
 func (db *DB) SummarizeModuleStructure(moduleID int64) (*ModuleStructureSummary, error) {
 	sum := &ModuleStructureSummary{}
 
-	// counts
 	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource'`, moduleID).Scan(&sum.ResourceCount)
 	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'lifecycle'`, moduleID).Scan(&sum.LifecycleCount)
 	_ = db.conn.QueryRow(`SELECT COUNT(*) FROM hcl_blocks WHERE module_id = ? AND block_type = 'resource' AND instr(IFNULL(attr_paths,''), 'lifecycle.ignore_changes') > 0`, moduleID).Scan(&sum.ResourcesWithIgnoreChanges)
 
-	// top resource types (by frequency)
 	rows, err := db.conn.Query(`
         SELECT type_label, COUNT(*) AS cnt
         FROM hcl_blocks
@@ -813,7 +808,6 @@ func (db *DB) SummarizeModuleStructure(moduleID int64) (*ModuleStructureSummary,
 		}
 	}
 
-	// distinct dynamic labels
 	rows2, err2 := db.conn.Query(`
         SELECT DISTINCT type_label FROM hcl_blocks
         WHERE module_id = ? AND block_type = 'dynamic' AND type_label IS NOT NULL
@@ -876,7 +870,6 @@ func (db *DB) GetModuleResourceTypes(moduleID int64) ([]string, error) {
 	return types, rows.Err()
 }
 
-// ClearModuleTags removes all persisted tags for the given module.
 func (db *DB) ClearModuleTags(moduleID int64) error {
 	_, err := db.conn.Exec(`DELETE FROM module_tags WHERE module_id = ?`, moduleID)
 	return err
@@ -931,8 +924,6 @@ func (db *DB) InsertModuleAlias(moduleID int64, alias string, weight int, source
 	return err
 }
 
-// ResolveModuleByAlias finds the best matching module for a given alias.
-// Preference: highest weight, top-level modules over submodules, name ASC.
 func (db *DB) ResolveModuleByAlias(alias string) (*Module, error) {
 	var m Module
 	err := db.conn.QueryRow(`
@@ -951,7 +942,6 @@ func (db *DB) ResolveModuleByAlias(alias string) (*Module, error) {
 	return &m, nil
 }
 
-// ResolveModuleByAliasPrefix attempts a prefix match on aliases when no exact alias is found.
 func (db *DB) ResolveModuleByAliasPrefix(prefix string) (*Module, error) {
 	like := strings.ToLower(prefix) + "%"
 	var m Module

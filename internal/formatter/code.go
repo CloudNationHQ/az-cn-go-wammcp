@@ -111,8 +111,8 @@ type PatternMatch struct {
 	ModuleName string
 	FileName   string
 	Match      string
-	BlockType  string // optional: resource|dynamic|lifecycle
-	Summary    string // optional: attribute summary
+	BlockType  string
+	Summary    string
 }
 
 func formatFullBlocks(results []PatternMatch) string {

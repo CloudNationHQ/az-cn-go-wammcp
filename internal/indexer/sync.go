@@ -1,3 +1,4 @@
+// Package indexer handles synchronization of Terraform modules from GitHub repositories.
 package indexer
 
 import (
@@ -460,7 +461,6 @@ func (s *Syncer) markModuleHasExamples(moduleID int64) {
 	}
 }
 
-// persistModuleTags derives lightweight tags from resources and module name, then stores them.
 func (s *Syncer) persistModuleTags(moduleID int64) error {
 	module, err := s.db.GetModuleByID(moduleID)
 	if err != nil {
@@ -471,29 +471,25 @@ func (s *Syncer) persistModuleTags(moduleID int64) error {
 		return err
 	}
 
-	// Derive tag weights
 	weights := make(map[string]int)
 
-	// From resource types: azurerm_x_y -> x, y (skip short/common tokens)
 	for _, r := range resources {
 		parts := strings.Split(r.ResourceType, "_")
 		for i, p := range parts {
-			if i == 0 { // provider prefix (e.g., azurerm)
+			if i == 0 {
 				continue
 			}
 			if len(p) <= 3 {
 				continue
 			}
-			weights[strings.ToLower(p)] += 2 // resource-derived tags get higher weight
+			weights[strings.ToLower(p)] += 2
 		}
 	}
 
-	// From module name: terraform-azure-foo-bar//modules/baz -> foo, bar, baz
 	name := module.Name
 	name = strings.ReplaceAll(name, "terraform-", "")
 	name = strings.ReplaceAll(name, "azure-", "")
 	name = strings.ReplaceAll(name, "//", "-")
-	// Iterate tokens without allocating a slice
 	lower := strings.ToLower(name)
 	for {
 		var token string
@@ -508,7 +504,6 @@ func (s *Syncer) persistModuleTags(moduleID int64) error {
 		}
 	}
 
-	// Store
 	if err := s.db.ClearModuleTags(moduleID); err != nil {
 		log.Printf("Warning: failed clearing tags for %s: %v", module.Name, err)
 	}
@@ -520,7 +515,6 @@ func (s *Syncer) persistModuleTags(moduleID int64) error {
 	return nil
 }
 
-// persistModuleAliases generates simple aliases from module name, submodule key, and tags.
 func (s *Syncer) persistModuleAliases(moduleID int64) error {
 	module, err := s.db.GetModuleByID(moduleID)
 	if err != nil {
@@ -528,14 +522,12 @@ func (s *Syncer) persistModuleAliases(moduleID int64) error {
 	}
 	tags, _ := s.db.GetModuleTags(moduleID)
 
-	// Base name cleanup
 	name := module.Name
 	name = strings.TrimPrefix(name, "terraform-azure-")
 	name = strings.TrimPrefix(name, "terraform-")
 	name = strings.TrimPrefix(name, "azure-")
 	name = strings.ReplaceAll(name, "//modules/", "-")
 
-	// Tokenize
 	tokens := []string{}
 	{
 		rest := name
@@ -552,7 +544,6 @@ func (s *Syncer) persistModuleAliases(moduleID int64) error {
 		}
 	}
 
-	// Build alias set with weights
 	type aliasW struct {
 		a string
 		w int
@@ -571,21 +562,16 @@ func (s *Syncer) persistModuleAliases(moduleID int64) error {
 		}
 	}
 
-	// Full simplified name
 	add(strings.Join(tokens, "-"), 3)
-	// Primary token (often the short name like vnet, vwan, pe, kv, agw)
 	if len(tokens) > 0 {
 		add(tokens[0], 3)
 	}
-	// Last token (submodule key like vnet-peering)
 	if len(tokens) > 1 {
 		add(tokens[len(tokens)-1], 2)
 	}
-	// All individual tokens
 	for _, t := range tokens {
 		add(t, 2)
 	}
-	// Acronym of tokens
 	if len(tokens) > 1 {
 		ac := ""
 		for _, t := range tokens {
@@ -593,7 +579,6 @@ func (s *Syncer) persistModuleAliases(moduleID int64) error {
 		}
 		add(ac, 1)
 	}
-	// Tags as aliases (weighted lower than name-derived primary)
 	for _, tg := range tags {
 		add(tg.Tag, 1)
 	}
@@ -733,7 +718,6 @@ func shouldSkipPath(relativePath string) bool {
 		".terraform":   {},
 	}
 
-	// Scan path segments without allocating a slice
 	rest := relativePath
 	for {
 		seg, r, ok := strings.Cut(rest, "/")
@@ -1020,7 +1004,6 @@ func attributeIsTrue(attr *hclsyntax.Attribute, content string) bool {
 }
 
 func (s *Syncer) indexHCLBlocks(moduleID int64, filePath string, body *hclsyntax.Body) {
-	// Clear existing blocks for this module is handled at module clear; we only insert per file here.
 	var walk func(b *hclsyntax.Body)
 	walk = func(b *hclsyntax.Body) {
 		for _, bl := range b.Blocks {
@@ -1035,7 +1018,6 @@ func (s *Syncer) indexHCLBlocks(moduleID int64, filePath string, body *hclsyntax
 				rng := bl.Range()
 				start := int(rng.Start.Byte)
 				end := int(rng.End.Byte)
-				// collect flattened attribute paths within this block
 				paths := collectAttrPaths(bl.Body, "")
 				attrPaths := strings.Join(paths, "\n")
 				_, err := s.db.InsertHCLBlock(moduleID, filePath, blockType, typeLabel, start, end, attrPaths)
@@ -1053,7 +1035,6 @@ func (s *Syncer) indexHCLBlocks(moduleID int64, filePath string, body *hclsyntax
 
 func collectAttrPaths(b *hclsyntax.Body, prefix string) []string {
 	var out []string
-	// attributes at this level
 	for k := range b.Attributes {
 		if prefix == "" {
 			out = append(out, k)
@@ -1061,7 +1042,6 @@ func collectAttrPaths(b *hclsyntax.Body, prefix string) []string {
 			out = append(out, prefix+"."+k)
 		}
 	}
-	// nested blocks
 	for _, nb := range b.Blocks {
 		p := nb.Type
 		if prefix != "" {
@@ -1422,7 +1402,6 @@ func parseNextLink(linkHeader string) string {
 	for {
 		part, r, ok := strings.Cut(rest, ",")
 		sections := strings.TrimSpace(part)
-		// split first url;params then iterate params with CutPrefix
 		urlPart, params, ok2 := strings.Cut(sections, ";")
 		if ok2 {
 			urlPart = strings.Trim(urlPart, " <>")
@@ -1433,9 +1412,8 @@ func parseNextLink(linkHeader string) string {
 				if p == "" {
 					break
 				}
-				// each param is "; key=value" or "key=value; ..."
 				var item string
-				item, p, _ = strings.Cut(p, ",") // try to consume a param chunk
+				item, p, _ = strings.Cut(p, ",")
 				item = strings.TrimSpace(item)
 				if trimmed, ok := strings.CutPrefix(item, "rel="); ok {
 					rel = strings.Trim(trimmed, "\"")
@@ -1453,6 +1431,5 @@ func parseNextLink(linkHeader string) string {
 		}
 		rest = r
 	}
-
 	return ""
 }
