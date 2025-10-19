@@ -119,9 +119,7 @@ Show module info for kv and list all resources it creates.
 
 List all examples for terraform-azure-aa.
 
-List the examples for sa, then open the example that demonstrates a private endpoint (private link) and show all files.
-
-For terraform-azure-func, list examples and open the private-endpoint example in full code.
+For terraform-azure-func, list examples and show the private-endpoint example in full code.
 
 **AST Pattern Compare (block‑aware)**
 
@@ -129,7 +127,7 @@ Compare dynamic "identity" across modules and show one example per unique patter
 
 Show lifecycle blocks that set ignore_changes (pattern: lifecycle has:ignore_changes) and summarize the modules.
 
-In vnet, show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
+Show dynamic "delegation" blocks with full code, and summarize the service_delegation name/actions.
 
 **Focused Code Queries**
 
@@ -140,6 +138,8 @@ Find modules that use for_each = merge(flatten(...)) and list the module names a
 In vwan and vgw, show resource "azurerm_vpn_gateway_nat_rule" with full blocks.
 
 In vnet, show dynamic "delegation" with full blocks.
+
+Extract point_to_site_vpn from the type definition in the vwan module.
 
 **Sync and Maintenance**
 

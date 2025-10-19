@@ -2,19 +2,6 @@ package util
 
 import "strings"
 
-// NormalizeQuery lowercases and trims lightweight punctuation/spacing.
-func NormalizeQuery(q string) string {
-	s := strings.ToLower(q)
-	s = strings.TrimSpace(s)
-	// Normalize common separators to single spaces
-	replacers := []string{"-", "_", "/", "."}
-	for _, r := range replacers {
-		s = strings.ReplaceAll(s, r, " ")
-	}
-	s = strings.Join(strings.Fields(s), " ")
-	return s
-}
-
 // ExpandQueryVariants generates simple, non-hardcoded variants to improve recall
 // without maintaining a manual synonyms list. Examples:
 //   - "key-vault" -> ["key vault", "keyvault"]
