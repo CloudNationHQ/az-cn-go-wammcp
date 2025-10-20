@@ -1,48 +1,36 @@
-# Azure CloudNation WAM MCP Server Makefile
-
 .PHONY: build run test clean install deps fmt vet lint
 
-# Build variables
 BINARY_NAME=az-cn-wam-mcp
 BUILD_DIR=./bin
 CMD_DIR=./cmd/server
 
-# Go variables
 GO=go
 GOFLAGS=-tags fts5
 LDFLAGS=-ldflags "-s -w"
 CGO_ENABLED=1
 
-# Default target
 all: deps fmt vet test build
 
-# Install dependencies
 deps:
 	$(GO) mod download
 	$(GO) mod tidy
 
-# Format code
 fmt:
 	$(GO) fmt ./...
 
-# Vet code
 vet:
 	$(GO) vet ./...
 
-# Run linter (requires golangci-lint to be installed)
 lint:
 	golangci-lint run
 
-# Run tests
 test:
 	$(GO) test -v ./...
 
-# Build binary
 build:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 
-# Build for multiple platforms
 build-all: build-linux build-darwin build-windows
 
 build-linux:
@@ -61,42 +49,33 @@ build-windows:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe $(CMD_DIR)
 
-# Run the server locally (for MCP testing)
 run: build
 	$(BUILD_DIR)/$(BINARY_NAME) -org cloudnationhq
 
-# Run with GitHub token
 run-with-token: build
 	@test -n "$(GITHUB_TOKEN)" || (echo "Error: GITHUB_TOKEN not set" && exit 1)
 	$(BUILD_DIR)/$(BINARY_NAME) -org cloudnationhq -token $(GITHUB_TOKEN)
 
-# Run with custom database path
 run-custom: build
 	$(BUILD_DIR)/$(BINARY_NAME) -org cloudnationhq -db $(DB_PATH)
 
-# Install binary to GOPATH/bin
 install:
 	$(GO) install $(GOFLAGS) $(LDFLAGS) $(CMD_DIR)
 
-# Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)
 	$(GO) clean
 
-# Run tests with coverage
 test-coverage:
 	$(GO) test -v -coverprofile=coverage.out ./...
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
-# Development setup
 dev-setup: deps
 	@echo "Installing development tools..."
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-# Quick check before commit
 check: fmt vet test
 
-# Help
 help:
 	@echo "Available targets:"
 	@echo "  all              - Run deps, fmt, vet, test, and build"
