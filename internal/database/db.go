@@ -532,7 +532,7 @@ func (db *DB) DeleteModuleByID(moduleID int64) error {
 
 func (db *DB) DeleteChildModules(parentName string) error {
 	pattern := parentName + "//%"
-	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\\'`, pattern)
+	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\'`, pattern)
 	return err
 }
 
