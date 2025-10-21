@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.0...v1.8.1) (2025-10-21)
+
+
+### Bug Fixes
+
+* add module_tags schema and fix SQLite ESCAPE in DeleteChildModules ([#30](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/30)) ([97bff33](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/97bff3364a2348470c9677f724a6eb169746826e))
+
 ## [1.8.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.7.0...v1.8.0) (2025-10-19)
 
 
