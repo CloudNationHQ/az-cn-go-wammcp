@@ -137,14 +137,16 @@ func (s *Server) handleMessage(msg Message) {
 	switch msg.Method {
 	case "initialize":
 		s.handleInitialize(msg)
-	case "initialized":
+	case "initialized", "notifications/initialized":
 		log.Println("Client initialized")
+		return
 	case "tools/list":
 		s.handleToolsList(msg)
 	case "tools/call":
 		s.handleToolsCall(msg)
 	case "notifications/cancelled":
 		log.Println("Request cancelled")
+		return
 	default:
 		s.sendError(-32601, "Method not found", msg.ID)
 	}
