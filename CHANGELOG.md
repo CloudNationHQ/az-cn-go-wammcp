@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.2](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.1...v1.8.2) (2025-10-28)
+
+
+### Bug Fixes
+
+* handle notifications/initialized in MCP protocol handshake ([#32](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/32)) ([c3505c4](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/c3505c4f0beba9ee1d708ec770b5e2c1bf70470d))
+
 ## [1.8.1](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.0...v1.8.1) (2025-10-21)
 
 
