@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.2...v1.8.3) (2025-11-01)
+
+
+### Bug Fixes
+
+* remove unused config yml file ([#34](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/34)) ([e625c42](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/e625c42a083b0fa9419e7d5a26b36521e63391fb))
+
 ## [1.8.2](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.1...v1.8.2) (2025-10-28)
 
 
