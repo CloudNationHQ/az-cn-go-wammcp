@@ -155,6 +155,10 @@ func (s *Syncer) SyncAll() (*SyncProgress, error) {
 
 	s.processRepoQueue(repos, progress, nil)
 
+	if err := s.db.ReclaimFreePages(); err != nil {
+		log.Printf("Warning: failed to reclaim free pages: %v", err)
+	}
+
 	log.Printf("Sync completed: %d/%d repositories synced successfully",
 		progress.ProcessedRepos-len(progress.Errors), progress.TotalRepos)
 
@@ -208,6 +212,10 @@ func (s *Syncer) SyncUpdates() (*SyncProgress, error) {
 	}
 
 	s.processRepoQueue(reposToSync, progress, onSuccess)
+
+	if err := s.db.ReclaimFreePages(); err != nil {
+		log.Printf("Warning: failed to reclaim free pages: %v", err)
+	}
 
 	syncedCount := len(progress.UpdatedRepos)
 
