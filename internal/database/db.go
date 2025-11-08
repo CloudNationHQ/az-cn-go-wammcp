@@ -14,6 +14,17 @@ type DB struct {
 	conn *sql.DB
 }
 
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type Module struct {
 	ID            int64
 	Name          string
@@ -133,6 +144,11 @@ func New(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
+	if err := enableIncrementalAutoVacuum(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
 	if _, err := conn.Exec(Schema); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
@@ -143,6 +159,23 @@ func New(dbPath string) (*DB, error) {
 
 func (db *DB) Close() error {
 	return db.conn.Close()
+}
+
+func enableIncrementalAutoVacuum(conn *sql.DB) error {
+	var mode int
+	if err := conn.QueryRow("PRAGMA auto_vacuum").Scan(&mode); err != nil {
+		return fmt.Errorf("failed to read auto_vacuum pragma: %w", err)
+	}
+	if mode == 2 { // 2 == incremental
+		return nil
+	}
+	if _, err := conn.Exec("PRAGMA auto_vacuum = 2"); err != nil {
+		return fmt.Errorf("failed to set auto_vacuum=incremental: %w", err)
+	}
+	if _, err := conn.Exec("VACUUM"); err != nil {
+		return fmt.Errorf("failed to run VACUUM after enabling incremental auto_vacuum: %w", err)
+	}
+	return nil
 }
 
 func escapeFTS5(query string) string {
@@ -522,18 +555,92 @@ func (db *DB) ClearModuleData(moduleID int64) error {
 		}
 	}
 
+	if err := db.rebuildFTSTables(tx); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
 func (db *DB) DeleteModuleByID(moduleID int64) error {
-	_, err := db.conn.Exec(`DELETE FROM modules WHERE id = ?`, moduleID)
-	return err
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`DELETE FROM modules WHERE id = ?`, moduleID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err == nil && rows > 0 {
+		if err := db.rebuildFTSTables(tx); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (db *DB) DeleteChildModules(parentName string) error {
 	pattern := parentName + "//%"
-	_, err := db.conn.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\'`, pattern)
-	return err
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`DELETE FROM modules WHERE name LIKE ? ESCAPE '\'`, pattern)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err == nil && rows > 0 {
+		if err := db.rebuildFTSTables(tx); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) rebuildFTSTables(exec execer) error {
+	if _, err := exec.Exec(`INSERT INTO modules_fts(modules_fts) VALUES('rebuild')`); err != nil {
+		return fmt.Errorf("failed to rebuild modules_fts: %w", err)
+	}
+
+	if _, err := exec.Exec(`INSERT INTO files_fts(files_fts) VALUES('rebuild')`); err != nil {
+		return fmt.Errorf("failed to rebuild files_fts: %w", err)
+	}
+
+	return nil
+}
+
+func (db *DB) ReclaimFreePages() error {
+	var freelist int
+	if err := db.conn.QueryRow("PRAGMA freelist_count").Scan(&freelist); err != nil {
+		return fmt.Errorf("failed to inspect freelist: %w", err)
+	}
+	if freelist == 0 {
+		return nil
+	}
+
+	for freelist > 0 {
+		chunk := minInt(freelist, 10000)
+
+		stmt := fmt.Sprintf("PRAGMA incremental_vacuum(%d)", chunk)
+		if _, err := db.conn.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to run incremental_vacuum: %w", err)
+		}
+
+		if err := db.conn.QueryRow("PRAGMA freelist_count").Scan(&freelist); err != nil {
+			return fmt.Errorf("failed to re-check freelist: %w", err)
+		}
+	}
+	return nil
 }
 
 func (db *DB) SetModuleHasExamples(moduleID int64, hasExamples bool) error {
