@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.4](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.3...v1.8.4) (2025-11-08)
+
+
+### Bug Fixes
+
+* rebuild FTS and vacuum to stop size creep ([#37](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/37)) ([4a386a3](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/4a386a37c44037f3c2bb38f5b965fbd432fe628f))
+
 ## [1.8.3](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.2...v1.8.3) (2025-11-01)
 
 
