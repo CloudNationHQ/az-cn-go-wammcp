@@ -40,6 +40,10 @@ Retrieve usage examples per module, including example file contents
 
 Extract complete variable definitions including types, defaults, and sensitivity
 
+**Releases & Versioning**
+
+Summarize module releases directly from the synced changelog, show targeted diff snippets for specific entries, and backfill older versions on demand.
+
 **Short-name Aliases**
 
 Use short module names (e.g., `vnet`, `kv`, `pe`, `agw`) instead of full names (e.g., `terraform-azure-vnet`).
@@ -141,6 +145,12 @@ In vnet, show dynamic "delegation" with full blocks.
 
 Extract point_to_site_vpn from the type definition in the vwan module.
 
+**Releases & Versioning**
+
+What's new in terraform-azure-aks v1.6.0? Summarize the release.
+
+Show the full diff snippet for the latest pe module release
+
 **Sync and Maintenance**
 
 Run a full sync of all modules and report the job ID; then show the sync status for that job ID.
@@ -170,6 +180,8 @@ Initial full sync takes ~20 seconds on first run. It is optimized via gitHub tar
 Deleting the database file `index.db` will cause a full rebuild the next time the tool gets called.
 
 Archived, private and empty repositories will be skipped by default.
+
+Release tracking keeps the most recent 40 versions per module; use the backfill tool when you need older tags that aren’t indexed yet.
 
 ## Direct Database Access
 
