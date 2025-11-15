@@ -202,4 +202,40 @@ CREATE TABLE IF NOT EXISTS module_tags (
 
 CREATE INDEX IF NOT EXISTS idx_module_tags_module_id ON module_tags(module_id);
 CREATE INDEX IF NOT EXISTS idx_module_tags_tag ON module_tags(tag);
+
+CREATE TABLE IF NOT EXISTS module_releases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    version TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    previous_version TEXT,
+    previous_tag TEXT,
+    commit_sha TEXT,
+    previous_commit_sha TEXT,
+    release_date TEXT,
+    comparison_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+    UNIQUE(module_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_module_releases_module ON module_releases(module_id);
+CREATE INDEX IF NOT EXISTS idx_module_releases_tag ON module_releases(tag);
+
+CREATE TABLE IF NOT EXISTS module_release_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    release_id INTEGER NOT NULL,
+    section TEXT NOT NULL,
+    entry_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    details TEXT,
+    identifier TEXT,
+    change_type TEXT,
+    order_index INTEGER DEFAULT 0,
+    FOREIGN KEY (release_id) REFERENCES module_releases(id) ON DELETE CASCADE,
+    UNIQUE(release_id, entry_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_module_release_entries_release ON module_release_entries(release_id);
+CREATE INDEX IF NOT EXISTS idx_module_release_entries_identifier ON module_release_entries(identifier);
 `

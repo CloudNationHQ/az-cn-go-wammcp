@@ -109,6 +109,32 @@ type ModuleTag struct {
 	Source   sql.NullString
 }
 
+type ModuleRelease struct {
+	ID                int64
+	ModuleID          int64
+	Version           string
+	Tag               string
+	PreviousVersion   sql.NullString
+	PreviousTag       sql.NullString
+	CommitSHA         sql.NullString
+	PreviousCommitSHA sql.NullString
+	ReleaseDate       sql.NullString
+	ComparisonURL     sql.NullString
+	CreatedAt         time.Time
+}
+
+type ModuleReleaseEntry struct {
+	ID         int64
+	ReleaseID  int64
+	Section    string
+	EntryKey   string
+	Title      string
+	Details    sql.NullString
+	Identifier sql.NullString
+	ChangeType sql.NullString
+	OrderIndex int
+}
+
 type HCLBlock struct {
 	ID        int64
 	ModuleID  int64
@@ -529,6 +555,161 @@ func (db *DB) GetModuleExamples(moduleID int64) ([]ModuleExample, error) {
 	}
 
 	return examples, rows.Err()
+}
+
+func (db *DB) UpsertModuleRelease(r *ModuleRelease) (int64, error) {
+	_, err := db.conn.Exec(`
+		INSERT INTO module_releases (
+			module_id, version, tag, previous_version, previous_tag,
+			commit_sha, previous_commit_sha, release_date, comparison_url
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(module_id, version) DO UPDATE SET
+			tag = excluded.tag,
+			previous_version = excluded.previous_version,
+			previous_tag = excluded.previous_tag,
+			commit_sha = excluded.commit_sha,
+			previous_commit_sha = excluded.previous_commit_sha,
+			release_date = excluded.release_date,
+			comparison_url = excluded.comparison_url
+	`, r.ModuleID, r.Version, r.Tag, r.PreviousVersion, r.PreviousTag, r.CommitSHA, r.PreviousCommitSHA, r.ReleaseDate, r.ComparisonURL)
+	if err != nil {
+		return 0, err
+	}
+
+	var id int64
+	if err := db.conn.QueryRow(`
+		SELECT id FROM module_releases WHERE module_id = ? AND version = ?
+	`, r.ModuleID, r.Version).Scan(&id); err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func (db *DB) ReplaceModuleReleaseEntries(releaseID int64, entries []ModuleReleaseEntry) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM module_release_entries WHERE release_id = ?`, releaseID); err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if _, err := tx.Exec(`
+			INSERT INTO module_release_entries (
+				release_id, section, entry_key, title, details, identifier, change_type, order_index
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, releaseID, entry.Section, entry.EntryKey, entry.Title, entry.Details, entry.Identifier, entry.ChangeType, entry.OrderIndex); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) GetLatestModuleRelease(moduleID int64) (*ModuleRelease, error) {
+	var r ModuleRelease
+	err := db.conn.QueryRow(`
+		SELECT id, module_id, version, tag, previous_version, previous_tag,
+		       commit_sha, previous_commit_sha, release_date, comparison_url, created_at
+		FROM module_releases WHERE module_id = ?
+		ORDER BY release_date DESC, created_at DESC LIMIT 1
+	`, moduleID).Scan(&r.ID, &r.ModuleID, &r.Version, &r.Tag, &r.PreviousVersion, &r.PreviousTag, &r.CommitSHA, &r.PreviousCommitSHA, &r.ReleaseDate, &r.ComparisonURL, &r.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (db *DB) GetModuleReleaseByVersion(moduleID int64, version string) (*ModuleRelease, error) {
+	var r ModuleRelease
+	err := db.conn.QueryRow(`
+		SELECT id, module_id, version, tag, previous_version, previous_tag,
+		       commit_sha, previous_commit_sha, release_date, comparison_url, created_at
+		FROM module_releases WHERE module_id = ? AND version = ?
+	`, moduleID, version).Scan(&r.ID, &r.ModuleID, &r.Version, &r.Tag, &r.PreviousVersion, &r.PreviousTag, &r.CommitSHA, &r.PreviousCommitSHA, &r.ReleaseDate, &r.ComparisonURL, &r.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (db *DB) GetModuleReleaseByTag(moduleID int64, tag string) (*ModuleRelease, error) {
+	var r ModuleRelease
+	err := db.conn.QueryRow(`
+		SELECT id, module_id, version, tag, previous_version, previous_tag,
+		       commit_sha, previous_commit_sha, release_date, comparison_url, created_at
+		FROM module_releases WHERE module_id = ? AND LOWER(tag) = LOWER(?)
+	`, moduleID, tag).Scan(&r.ID, &r.ModuleID, &r.Version, &r.Tag, &r.PreviousVersion, &r.PreviousTag, &r.CommitSHA, &r.PreviousCommitSHA, &r.ReleaseDate, &r.ComparisonURL, &r.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (db *DB) GetModuleReleaseEntries(releaseID int64) ([]ModuleReleaseEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, release_id, section, entry_key, title, details, identifier, change_type, order_index
+		FROM module_release_entries
+		WHERE release_id = ?
+		ORDER BY order_index ASC
+	`, releaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []ModuleReleaseEntry
+	for rows.Next() {
+		var entry ModuleReleaseEntry
+		if err := rows.Scan(&entry.ID, &entry.ReleaseID, &entry.Section, &entry.EntryKey, &entry.Title, &entry.Details, &entry.Identifier, &entry.ChangeType, &entry.OrderIndex); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, rows.Err()
+}
+
+func (db *DB) GetLatestModuleReleaseWithEntries(moduleID int64) (*ModuleRelease, []ModuleReleaseEntry, error) {
+	release, err := db.GetLatestModuleRelease(moduleID)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := db.GetModuleReleaseEntries(release.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return release, entries, nil
+}
+
+func (db *DB) GetModuleReleaseWithEntriesByVersion(moduleID int64, version string) (*ModuleRelease, []ModuleReleaseEntry, error) {
+	release, err := db.GetModuleReleaseByVersion(moduleID, version)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := db.GetModuleReleaseEntries(release.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return release, entries, nil
+}
+
+func (db *DB) GetModuleReleaseWithEntriesByTag(moduleID int64, tag string) (*ModuleRelease, []ModuleReleaseEntry, error) {
+	release, err := db.GetModuleReleaseByTag(moduleID, tag)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := db.GetModuleReleaseEntries(release.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return release, entries, nil
 }
 
 func (db *DB) ClearModuleData(moduleID int64) error {

@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"sync"
@@ -54,6 +55,24 @@ type GitHubContent struct {
 	DownloadURL string `json:"download_url"`
 	Content     string `json:"content"`
 	Size        int64  `json:"size"`
+}
+
+type GitHubTag struct {
+	Name   string `json:"name"`
+	Commit struct {
+		SHA string `json:"sha"`
+		URL string `json:"url"`
+	} `json:"commit"`
+}
+
+type GitHubCompareResult struct {
+	Files []GitHubCompareFile `json:"files"`
+}
+
+type GitHubCompareFile struct {
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+	Patch    string `json:"patch"`
 }
 
 type GitHubClient struct {
@@ -139,6 +158,21 @@ func (s *Syncer) workerCountFor(total int) int {
 	}
 
 	return count
+}
+
+func (s *Syncer) CompareTags(repoFullName, baseTag, headTag string) (*GitHubCompareResult, error) {
+	if s.githubClient == nil {
+		return nil, fmt.Errorf("github client is not initialized")
+	}
+	base := strings.TrimSpace(baseTag)
+	head := strings.TrimSpace(headTag)
+	if repoFullName == "" {
+		return nil, fmt.Errorf("repository name is required")
+	}
+	if base == "" || head == "" {
+		return nil, fmt.Errorf("base and head tags are required")
+	}
+	return s.githubClient.compare(repoFullName, base, head)
 }
 
 func (s *Syncer) SyncAll() (*SyncProgress, error) {
@@ -384,6 +418,10 @@ func (s *Syncer) syncRepository(repo GitHubRepo) error {
 		if err := s.persistModuleAliases(childID); err != nil {
 			log.Printf("Warning: failed to persist aliases for submodule %d of %s: %v", childID, repo.Name, err)
 		}
+	}
+
+	if err := s.captureModuleReleaseMetadata(moduleID, repo); err != nil {
+		log.Printf("Warning: failed to ingest release metadata for %s: %v", repo.Name, err)
 	}
 
 	return nil
@@ -1305,6 +1343,47 @@ func (gc *GitHubClient) get(url string) ([]byte, error) {
 	gc.cacheMutex.Unlock()
 
 	return data, nil
+}
+
+func (gc *GitHubClient) listTags(repoFullName string, maxPages int) ([]GitHubTag, error) {
+	if maxPages <= 0 {
+		maxPages = 1
+	}
+	var tags []GitHubTag
+	for page := 1; page <= maxPages; page++ {
+		endpoint := fmt.Sprintf("https://api.github.com/repos/%s/tags?per_page=100&page=%d", repoFullName, page)
+		data, err := gc.get(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		var batch []GitHubTag
+		if err := json.Unmarshal(data, &batch); err != nil {
+			return nil, err
+		}
+		tags = append(tags, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return tags, nil
+}
+
+func (gc *GitHubClient) compare(repoFullName, base, head string) (*GitHubCompareResult, error) {
+	compareURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/compare/%s...%s",
+		repoFullName,
+		url.PathEscape(base),
+		url.PathEscape(head),
+	)
+	data, err := gc.get(compareURL)
+	if err != nil {
+		return nil, err
+	}
+	var result GitHubCompareResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (gc *GitHubClient) getArchive(url string) ([]byte, error) {

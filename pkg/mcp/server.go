@@ -395,6 +395,68 @@ func (s *Server) handleToolsList(msg Message) {
 				},
 			},
 		},
+		{
+			"name":        "get_release_summary",
+			"description": "Render the latest or specified release summary for a module",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"module_name": map[string]any{
+						"type":        "string",
+						"description": "Module to inspect (e.g., terraform-azure-aks)",
+					},
+					"version": map[string]any{
+						"type":        "string",
+						"description": "Optional module version (e.g., 1.2.0). Defaults to the latest release.",
+					},
+				},
+				"required": []string{"module_name"},
+			},
+		},
+		{
+			"name":        "get_release_snippet",
+			"description": "Show the code diff snippet associated with a module release entry",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"module_name": map[string]any{
+						"type":        "string",
+						"description": "Module to inspect",
+					},
+					"version": map[string]any{
+						"type":        "string",
+						"description": "Release version to inspect",
+					},
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Module name, resource, or text excerpt from the release entry",
+					},
+					"max_context_lines": map[string]any{
+						"type":        "integer",
+						"description": "Optional limit for diff lines (default 24)",
+					},
+				},
+				"required": []string{"module_name", "version", "query"},
+			},
+		},
+		{
+			"name":        "backfill_release",
+			"description": "Parse and store a specific module release from CHANGELOG without a full sync",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"module_name": map[string]any{
+						"type":        "string",
+						"description": "Module to parse",
+					},
+					"version": map[string]any{
+						"type":        "string",
+						"description": "Target version (e.g., 1.0.0 or v1.0.0)",
+					},
+				},
+				"required": []string{"module_name", "version"},
+			},
+		},
 	}
 
 	response := Message{
@@ -450,6 +512,12 @@ func (s *Server) handleToolsCall(msg Message) {
 		result = s.handleGetExampleContent(params.Arguments)
 	case "sync_status":
 		result = s.handleSyncStatus(params.Arguments)
+	case "get_release_summary":
+		result = s.handleGetReleaseSummary(params.Arguments)
+	case "get_release_snippet":
+		result = s.handleGetReleaseSnippet(params.Arguments)
+	case "backfill_release":
+		result = s.handleBackfillRelease(params.Arguments)
 	default:
 		s.sendError(-32601, "Tool not found", msg.ID)
 		return
@@ -502,6 +570,14 @@ func (s *Server) handleSyncUpdatesModules() map[string]any {
 		progress.UpdatedRepos,
 		progress.Errors,
 	)
+
+	if summary := s.releaseSummaryIfUpdated(progress.UpdatedRepos); summary != "" {
+		if strings.TrimSpace(text) != "" {
+			text = strings.TrimSpace(text) + "\n\n" + summary
+		} else {
+			text = summary
+		}
+	}
 
 	return SuccessResponse(text)
 }
