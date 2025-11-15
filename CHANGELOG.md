@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.4...v1.9.0) (2025-11-15)
+
+
+### Features
+
+* add release querying and snippet tools ([#39](https://github.com/CloudNationHQ/az-cn-go-wammcp/issues/39)) ([9b81867](https://github.com/CloudNationHQ/az-cn-go-wammcp/commit/9b81867b461d4be83bde6961e0ce726528a71f21))
+
 ## [1.8.4](https://github.com/CloudNationHQ/az-cn-go-wammcp/compare/v1.8.3...v1.8.4) (2025-11-08)
 
 
